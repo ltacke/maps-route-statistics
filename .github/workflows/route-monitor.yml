@@ -1,0 +1,45 @@
+name: Route Monitor
+
+on:
+  schedule:
+    - cron: '0 3-21 * * 1-5'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  fetch-route:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Fetch route duration
+        env:
+          GOOGLE_MAPS_API_KEY: ${{ secrets.GOOGLE_MAPS_API_KEY }}
+          ROUTE_ID: ${{ vars.ROUTE_ID }}
+          ORIGIN_LAT: ${{ vars.ORIGIN_LAT }}
+          ORIGIN_LNG: ${{ vars.ORIGIN_LNG }}
+          DEST_LAT: ${{ vars.DEST_LAT }}
+          DEST_LNG: ${{ vars.DEST_LNG }}
+          TIMEZONE: ${{ vars.TIMEZONE }}
+        run: python scripts/fetch_route.py
+
+      - name: Commit updated data
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add data/route_history.csv data/stats.json
+          git diff --staged --quiet || git commit -m "chore: update route history [skip ci]"
+          git push
