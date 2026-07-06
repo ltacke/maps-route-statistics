@@ -122,3 +122,32 @@ def test_latest_is_most_recent(tmp_path):
     result = json.loads(json_path.read_text())
     assert result["routes"]["r1"]["latest"]["duration_seconds"] == 9999
     assert result["routes"]["r1"]["latest"]["timestamp_utc"] == "2025-01-14T08:00:00+00:00"
+
+
+def test_build_multiple_routes(tmp_path):
+    csv_path = tmp_path / "route_history.csv"
+    json_path = tmp_path / "stats.json"
+    write_csv(csv_path, [
+        {
+            "route_id": "route_a", "timestamp_utc": "2025-01-13T07:00:00+00:00",
+            "weekday_local": "Monday", "hour_local": "08",
+            "origin_lat": 0, "origin_lng": 0, "destination_lat": 0, "destination_lng": 0,
+            "duration_seconds": 1000, "static_duration_seconds": 900,
+            "travel_mode": "DRIVE", "source": "google_routes_api",
+        },
+        {
+            "route_id": "route_b", "timestamp_utc": "2025-01-13T07:00:00+00:00",
+            "weekday_local": "Monday", "hour_local": "08",
+            "origin_lat": 0, "origin_lng": 0, "destination_lat": 0, "destination_lng": 0,
+            "duration_seconds": 9000, "static_duration_seconds": 8000,
+            "travel_mode": "DRIVE", "source": "google_routes_api",
+        },
+    ])
+
+    from build_stats import build
+    build(csv_path=csv_path, json_path=json_path)
+
+    result = json.loads(json_path.read_text())
+    assert set(result["routes"].keys()) == {"route_a", "route_b"}
+    assert result["routes"]["route_a"]["latest"]["duration_seconds"] == 1000
+    assert result["routes"]["route_b"]["latest"]["duration_seconds"] == 9000

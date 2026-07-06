@@ -8,6 +8,7 @@ Oder als Modul importiert:
     from build_stats import build
     build()
 """
+import collections
 import csv
 import datetime as dt
 import json
@@ -26,32 +27,28 @@ def build(
     json_path: Path = _DEFAULT_JSON,
 ) -> None:
     """Liest csv_path und schreibt aggregierte stats nach json_path (atomar)."""
-    routes: dict = {}
+    routes: dict = collections.defaultdict(list)
 
     with csv_path.open(newline="", encoding="utf-8") as f:
         reader = csv.DictReader(f)
         for row in reader:
             route_id = row["route_id"]
-            if route_id not in routes:
-                routes[route_id] = {"_rows": []}
-            routes[route_id]["_rows"].append(row)
+            routes[route_id].append(row)
 
     output: dict = {
         "last_updated": dt.datetime.now(dt.timezone.utc).replace(microsecond=0).isoformat(),
         "routes": {},
     }
 
-    for route_id, data in routes.items():
-        rows = data["_rows"]
-
+    for route_id, rows in routes.items():
         # Neuester Eintrag
-        latest_row = max(rows, key=lambda r: r["timestamp_utc"])
+        latest_row = max(rows, key=lambda r: dt.datetime.fromisoformat(r["timestamp_utc"]))
 
         # Aggregation pro Wochentag × Stunde
         by_weekday_hour: dict = {}
         for row in rows:
             wd = row["weekday_local"]
-            hr = row["hour_local"]
+            hr = row["hour_local"].zfill(2)
             val = int(row["duration_seconds"])
             by_weekday_hour.setdefault(wd, {}).setdefault(hr, []).append(val)
 
