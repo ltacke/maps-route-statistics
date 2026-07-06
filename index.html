@@ -1,0 +1,329 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Route Monitor</title>
+  <script src="vendor/papaparse.min.js"></script>
+  <script src="vendor/chart.min.js"></script>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, "Segoe UI", system-ui, sans-serif;
+      font-size: 14px;
+      line-height: 1.6;
+      color: #1f2328;
+      background: #ffffff;
+      padding: 24px 16px;
+    }
+    .container { max-width: 760px; margin: 0 auto; }
+    h1 { font-size: 20px; font-weight: 600; margin-bottom: 4px; }
+    .subtitle { color: #57606a; font-size: 13px; margin-bottom: 32px; }
+    .card {
+      background: #f7f8fa;
+      border: 1px solid #e5e7eb;
+      border-radius: 6px;
+      padding: 20px;
+      margin-bottom: 24px;
+    }
+    .card h2 { font-size: 15px; font-weight: 600; margin-bottom: 16px; }
+    .stat-row { display: flex; gap: 24px; flex-wrap: wrap; margin-bottom: 8px; }
+    .stat { }
+    .stat .label { font-size: 12px; color: #57606a; }
+    .stat .value { font-size: 28px; font-weight: 700; color: #1f2328; }
+    .stat .unit { font-size: 14px; color: #57606a; }
+    .delay-positive { color: #d97706; }
+    .delay-zero { color: #16a34a; }
+    .toggle-group { display: flex; gap: 4px; margin-bottom: 16px; }
+    .toggle-btn {
+      padding: 4px 12px;
+      border: 1px solid #e5e7eb;
+      border-radius: 4px;
+      background: #fff;
+      cursor: pointer;
+      font-size: 13px;
+      color: #57606a;
+    }
+    .toggle-btn.active {
+      background: #3b82d4;
+      border-color: #3b82d4;
+      color: #fff;
+    }
+    .chart-wrap { position: relative; height: 240px; }
+    /* Heatmap */
+    .heatmap-wrap { overflow-x: auto; }
+    table.heatmap {
+      border-collapse: collapse;
+      font-size: 12px;
+      min-width: 100%;
+    }
+    table.heatmap th, table.heatmap td {
+      border: 1px solid #e5e7eb;
+      padding: 5px 8px;
+      text-align: center;
+      white-space: nowrap;
+    }
+    table.heatmap th { background: #f7f8fa; font-weight: 600; }
+    table.heatmap td { min-width: 52px; }
+    .legend { display: flex; align-items: center; gap: 8px; margin-top: 12px; font-size: 12px; color: #57606a; }
+    .legend-bar {
+      width: 120px; height: 12px; border-radius: 2px;
+      background: linear-gradient(to right, #bbf7d0, #fef08a, #fca5a5);
+    }
+    #loading { color: #57606a; font-size: 13px; }
+    #error { color: #dc2626; font-size: 13px; display: none; }
+  </style>
+</head>
+<body>
+<div class="container">
+  <h1>Route Monitor</h1>
+  <p class="subtitle" id="route-label">Lade Daten…</p>
+  <p id="loading">Daten werden geladen…</p>
+  <p id="error"></p>
+
+  <!-- Aktueller Wert -->
+  <div class="card" id="card-current" style="display:none">
+    <h2>Aktuell</h2>
+    <div class="stat-row">
+      <div class="stat">
+        <div class="label">Fahrtdauer</div>
+        <div class="value" id="val-duration">—</div>
+        <span class="unit">min</span>
+      </div>
+      <div class="stat">
+        <div class="label">Ohne Verkehr</div>
+        <div class="value" id="val-static">—</div>
+        <span class="unit">min</span>
+      </div>
+      <div class="stat">
+        <div class="label">Verzögerung</div>
+        <div class="value" id="val-delay">—</div>
+        <span class="unit">min</span>
+      </div>
+    </div>
+    <div style="font-size:12px;color:#57606a;margin-top:8px" id="val-timestamp"></div>
+  </div>
+
+  <!-- Zeitreihenchart -->
+  <div class="card">
+    <h2>Verlauf</h2>
+    <div class="toggle-group">
+      <button class="toggle-btn active" data-days="7">7 Tage</button>
+      <button class="toggle-btn" data-days="30">30 Tage</button>
+      <button class="toggle-btn" data-days="90">90 Tage</button>
+    </div>
+    <div class="chart-wrap">
+      <canvas id="chart-timeseries"></canvas>
+    </div>
+  </div>
+
+  <!-- Heatmap -->
+  <div class="card">
+    <h2>Durchschnitt nach Wochentag & Uhrzeit</h2>
+    <div class="heatmap-wrap">
+      <div id="heatmap-container"><p style="color:#57606a;font-size:13px">Noch keine Aggregationsdaten vorhanden.</p></div>
+    </div>
+    <div class="legend">
+      <span>schnell</span>
+      <div class="legend-bar"></div>
+      <span>langsam</span>
+    </div>
+  </div>
+</div>
+
+<script>
+const WEEKDAY_ORDER = ["Monday","Tuesday","Wednesday","Thursday","Friday"];
+const WEEKDAY_DE = { Monday:"Mo", Tuesday:"Di", Wednesday:"Mi", Thursday:"Do", Friday:"Fr" };
+const HOURS = Array.from({length: 17}, (_, i) => String(i + 5).padStart(2, "0")); // 05–21
+
+let timeseriesChart = null;
+let allRows = [];
+let activeDays = 7;
+
+// ── Hilfsfunktionen ────────────────────────────────────────────────────────────
+
+function secToMin(s) { return Math.round(s / 60); }
+
+function heatColor(value, minVal, maxVal) {
+  if (value === null) return "#e5e7eb";
+  if (minVal === maxVal) return "#fef08a";
+  const t = (value - minVal) / (maxVal - minVal);
+  // Grün → Gelb → Rot
+  const r = Math.round(t < 0.5 ? 2 * t * 255 : 255);
+  const g = Math.round(t < 0.5 ? 187 + (0.5 - t) * 2 * 68 : (1 - t) * 2 * 187);
+  const b = Math.round(t < 0.5 ? 2 * t * 165 : (1 - t) * 2 * 165);
+  return `rgb(${r},${g},${b})`;
+}
+
+function formatTs(isoStr) {
+  const d = new Date(isoStr);
+  return d.toLocaleString("de-DE", { dateStyle: "short", timeStyle: "short" });
+}
+
+// ── Zeitreihenchart ────────────────────────────────────────────────────────────
+
+function buildTimeseries(rows, days) {
+  const cutoff = new Date(Date.now() - days * 86400 * 1000);
+  const filtered = rows.filter(r => new Date(r.timestamp_utc) >= cutoff);
+  const labels = filtered.map(r => formatTs(r.timestamp_utc));
+  const duration = filtered.map(r => secToMin(parseInt(r.duration_seconds)));
+  const staticDur = filtered.map(r => secToMin(parseInt(r.static_duration_seconds)));
+  return { labels, duration, staticDur };
+}
+
+function renderTimeseries(rows, days) {
+  const ctx = document.getElementById("chart-timeseries").getContext("2d");
+  const { labels, duration, staticDur } = buildTimeseries(rows, days);
+  if (timeseriesChart) timeseriesChart.destroy();
+  timeseriesChart = new Chart(ctx, {
+    type: "line",
+    data: {
+      labels,
+      datasets: [
+        {
+          label: "Mit Verkehr",
+          data: duration,
+          borderColor: "#3b82d4",
+          backgroundColor: "rgba(59,130,212,0.08)",
+          borderWidth: 2,
+          pointRadius: labels.length > 100 ? 0 : 3,
+          tension: 0.3,
+        },
+        {
+          label: "Ohne Verkehr",
+          data: staticDur,
+          borderColor: "#9ca3af",
+          borderDash: [4, 4],
+          borderWidth: 1.5,
+          pointRadius: 0,
+          tension: 0.3,
+        },
+      ],
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: { legend: { position: "bottom" } },
+      scales: {
+        x: { ticks: { maxTicksLimit: 8, maxRotation: 0 } },
+        y: { title: { display: true, text: "Minuten" }, beginAtZero: false },
+      },
+    },
+  });
+}
+
+// ── Heatmap ────────────────────────────────────────────────────────────────────
+
+function renderHeatmap(byWeekdayHour) {
+  const days = WEEKDAY_ORDER.filter(d => byWeekdayHour[d]);
+  if (days.length === 0) return;
+
+  // Alle Werte für Farbskala sammeln
+  const allVals = [];
+  for (const d of days) {
+    for (const h of HOURS) {
+      const cell = byWeekdayHour[d]?.[h];
+      if (cell) allVals.push(cell.avg);
+    }
+  }
+  const minVal = Math.min(...allVals);
+  const maxVal = Math.max(...allVals);
+
+  let html = '<table class="heatmap"><thead><tr><th>Uhr</th>';
+  for (const d of days) html += `<th>${WEEKDAY_DE[d]}</th>`;
+  html += "</tr></thead><tbody>";
+
+  for (const h of HOURS) {
+    html += `<tr><td><strong>${h}:00</strong></td>`;
+    for (const d of days) {
+      const cell = byWeekdayHour[d]?.[h];
+      if (cell) {
+        const color = heatColor(cell.avg, minVal, maxVal);
+        const min = secToMin(cell.avg);
+        html += `<td style="background:${color}" title="${min} min (n=${cell.count})">${min}</td>`;
+      } else {
+        html += `<td style="background:#e5e7eb;color:#9ca3af">—</td>`;
+      }
+    }
+    html += "</tr>";
+  }
+  html += "</tbody></table>";
+  document.getElementById("heatmap-container").innerHTML = html;
+}
+
+// ── Hauptlogik ─────────────────────────────────────────────────────────────────
+
+async function init() {
+  try {
+    // stats.json laden
+    const statsRes = await fetch("data/stats.json");
+    if (!statsRes.ok) throw new Error("stats.json nicht gefunden");
+    const stats = await statsRes.json();
+
+    const routeKeys = Object.keys(stats.routes || {});
+    if (routeKeys.length === 0) {
+      document.getElementById("loading").textContent = "Noch keine Daten vorhanden.";
+      return;
+    }
+
+    const routeId = routeKeys[0];
+    const routeData = stats.routes[routeId];
+
+    // Label
+    document.getElementById("route-label").textContent =
+      `Route: ${routeId} · Stand: ${formatTs(stats.last_updated)}`;
+
+    // Aktueller Wert
+    if (routeData.latest) {
+      const dur = secToMin(routeData.latest.duration_seconds);
+      const sta = secToMin(routeData.latest.static_duration_seconds);
+      const delay = dur - sta;
+      document.getElementById("val-duration").textContent = dur;
+      document.getElementById("val-static").textContent = sta;
+      const delayEl = document.getElementById("val-delay");
+      delayEl.textContent = delay > 0 ? `+${delay}` : delay;
+      delayEl.className = `value ${delay > 0 ? "delay-positive" : "delay-zero"}`;
+      document.getElementById("val-timestamp").textContent =
+        `Gemessen: ${formatTs(routeData.latest.timestamp_utc)}`;
+      document.getElementById("card-current").style.display = "";
+    }
+
+    // Heatmap
+    if (routeData.by_weekday_hour) {
+      renderHeatmap(routeData.by_weekday_hour);
+    }
+
+    // CSV für Zeitreihe laden
+    const csvRes = await fetch("data/route_history.csv");
+    if (!csvRes.ok) throw new Error("route_history.csv nicht gefunden");
+    const csvText = await csvRes.text();
+    const parsed = Papa.parse(csvText, { header: true, skipEmptyLines: true });
+    allRows = parsed.data.filter(r => r.route_id === routeId);
+    allRows.sort((a, b) => a.timestamp_utc.localeCompare(b.timestamp_utc));
+
+    renderTimeseries(allRows, activeDays);
+
+    // Toggle-Buttons
+    document.querySelectorAll(".toggle-btn").forEach(btn => {
+      btn.addEventListener("click", () => {
+        document.querySelectorAll(".toggle-btn").forEach(b => b.classList.remove("active"));
+        btn.classList.add("active");
+        activeDays = parseInt(btn.dataset.days);
+        renderTimeseries(allRows, activeDays);
+      });
+    });
+
+    document.getElementById("loading").style.display = "none";
+
+  } catch (err) {
+    document.getElementById("loading").style.display = "none";
+    const errEl = document.getElementById("error");
+    errEl.textContent = `Fehler: ${err.message}`;
+    errEl.style.display = "";
+  }
+}
+
+init();
+</script>
+</body>
+</html>
