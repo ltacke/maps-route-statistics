@@ -34,6 +34,7 @@
     .stat .unit { font-size: 14px; color: #57606a; }
     .delay-positive { color: #d97706; }
     .delay-zero { color: #16a34a; }
+    .delay-negative { color: #16a34a; }
     .toggle-group { display: flex; gap: 4px; margin-bottom: 16px; }
     .toggle-btn {
       padding: 4px 12px;
@@ -148,10 +149,20 @@ function heatColor(value, minVal, maxVal) {
   if (value === null) return "#e5e7eb";
   if (minVal === maxVal) return "#fef08a";
   const t = (value - minVal) / (maxVal - minVal);
-  // Grün → Gelb → Rot
-  const r = Math.round(t < 0.5 ? 2 * t * 255 : 255);
-  const g = Math.round(t < 0.5 ? 187 + (0.5 - t) * 2 * 68 : (1 - t) * 2 * 187);
-  const b = Math.round(t < 0.5 ? 2 * t * 165 : (1 - t) * 2 * 165);
+  // 3-stop: green(0) → yellow(0.5) → red(1)
+  // rgb stops: [187,247,208], [254,240,138], [252,165,165]
+  let r, g, b;
+  if (t <= 0.5) {
+    const s = t * 2; // 0→1 over first half
+    r = Math.round(187 + s * (254 - 187));
+    g = Math.round(247 + s * (240 - 247));
+    b = Math.round(208 + s * (138 - 208));
+  } else {
+    const s = (t - 0.5) * 2; // 0→1 over second half
+    r = Math.round(254 + s * (252 - 254));
+    g = Math.round(240 + s * (165 - 240));
+    b = Math.round(138 + s * (165 - 138));
+  }
   return `rgb(${r},${g},${b})`;
 }
 
@@ -282,7 +293,7 @@ async function init() {
       document.getElementById("val-static").textContent = sta;
       const delayEl = document.getElementById("val-delay");
       delayEl.textContent = delay > 0 ? `+${delay}` : delay;
-      delayEl.className = `value ${delay > 0 ? "delay-positive" : "delay-zero"}`;
+      delayEl.className = `value ${delay > 0 ? "delay-positive" : delay < 0 ? "delay-negative" : "delay-zero"}`;
       document.getElementById("val-timestamp").textContent =
         `Gemessen: ${formatTs(routeData.latest.timestamp_utc)}`;
       document.getElementById("card-current").style.display = "";
@@ -293,15 +304,20 @@ async function init() {
       renderHeatmap(routeData.by_weekday_hour);
     }
 
-    // CSV für Zeitreihe laden
-    const csvRes = await fetch("data/route_history.csv");
-    if (!csvRes.ok) throw new Error("route_history.csv nicht gefunden");
-    const csvText = await csvRes.text();
-    const parsed = Papa.parse(csvText, { header: true, skipEmptyLines: true });
-    allRows = parsed.data.filter(r => r.route_id === routeId);
-    allRows.sort((a, b) => a.timestamp_utc.localeCompare(b.timestamp_utc));
-
-    renderTimeseries(allRows, activeDays);
+    // CSV für Zeitreihe laden (Fehler werden lokal behandelt, Heatmap bleibt sichtbar)
+    try {
+      const csvRes = await fetch("data/route_history.csv");
+      if (!csvRes.ok) throw new Error("route_history.csv nicht gefunden");
+      const csvText = await csvRes.text();
+      const parsed = Papa.parse(csvText, { header: true, skipEmptyLines: true });
+      allRows = parsed.data.filter(r => r.route_id === routeId);
+      allRows.sort((a, b) => a.timestamp_utc.localeCompare(b.timestamp_utc));
+      renderTimeseries(allRows, activeDays);
+    } catch (csvErr) {
+      // Zeitreihenchart-Fehler: Meldung in der Chart-Karte anzeigen, Rest bleibt sichtbar
+      const chartWrap = document.querySelector(".chart-wrap");
+      if (chartWrap) chartWrap.innerHTML = `<p style="color:#dc2626;font-size:13px;padding:8px">Verlaufsdaten konnten nicht geladen werden: ${csvErr.message}</p>`;
+    }
 
     // Toggle-Buttons
     document.querySelectorAll(".toggle-btn").forEach(btn => {
