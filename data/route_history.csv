@@ -1,1 +1,2 @@
 route_id,timestamp_utc,weekday_local,hour_local,origin_lat,origin_lng,destination_lat,destination_lng,duration_seconds,static_duration_seconds,travel_mode,source
+default,2026-07-06T17:49:14+00:00,Monday,19,48.7784,9.18,48.1351,11.582,9177,10214,DRIVE,google_routes_api
