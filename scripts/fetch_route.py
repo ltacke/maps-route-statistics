@@ -87,7 +87,7 @@ def fetch_with_retry(api_key: str, payload: dict, retries: int = 1, delay: int =
 def main() -> None:
     now_utc = dt.datetime.now(dt.timezone.utc)
 
-    timezone = os.environ.get("TIMEZONE", "Europe/Berlin")
+    timezone = os.environ.get("TIMEZONE") or "Europe/Berlin"
     if not is_within_window(now_utc, timezone=timezone):
         print(f"Außerhalb des Zeitfensters ({now_utc.isoformat()}), kein API-Call.")
         sys.exit(0)
@@ -95,11 +95,11 @@ def main() -> None:
     api_key = os.environ.get("GOOGLE_MAPS_API_KEY")
     if not api_key:
         raise ValueError("GOOGLE_MAPS_API_KEY Umgebungsvariable ist nicht gesetzt")
-    route_id = os.environ.get("ROUTE_ID", "default")
-    origin_lat = float(os.environ.get("ORIGIN_LAT", "48.7784"))
-    origin_lng = float(os.environ.get("ORIGIN_LNG", "9.1800"))
-    dest_lat = float(os.environ.get("DEST_LAT", "48.1351"))
-    dest_lng = float(os.environ.get("DEST_LNG", "11.5820"))
+    route_id = os.environ.get("ROUTE_ID") or "default"
+    origin_lat = float(os.environ.get("ORIGIN_LAT") or "48.7784")
+    origin_lng = float(os.environ.get("ORIGIN_LNG") or "9.1800")
+    dest_lat = float(os.environ.get("DEST_LAT") or "48.1351")
+    dest_lng = float(os.environ.get("DEST_LNG") or "11.5820")
 
     payload = {
         "origin": {"location": {"latLng": {"latitude": origin_lat, "longitude": origin_lng}}},
