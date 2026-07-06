@@ -63,13 +63,22 @@ def _call_api(api_key: str, payload: dict) -> dict:
 
 
 def fetch_with_retry(api_key: str, payload: dict, retries: int = 1, delay: int = 10) -> dict:
-    """Ruft die API auf, 1x Retry bei Fehler nach `delay` Sekunden."""
+    """Ruft die API auf, 1x Retry bei Netzwerkfehlern und 5xx/429. 4xx wird direkt geworfen."""
     for attempt in range(retries + 1):
         try:
             return _call_api(api_key, payload)
-        except (requests.RequestException, requests.HTTPError) as exc:
+        except requests.HTTPError as exc:
+            status = exc.response.status_code if exc.response is not None else None
+            if status is not None and status < 500 and status != 429:
+                raise  # Deterministischer Fehler (4xx außer 429) — kein Retry
             if attempt < retries:
-                print(f"API-Fehler (Versuch {attempt + 1}): {exc} — Retry in {delay}s")
+                print(f"API-Fehler HTTP {status} (Versuch {attempt + 1}) — Retry in {delay}s")
+                time.sleep(delay)
+            else:
+                raise
+        except requests.RequestException as exc:
+            if attempt < retries:
+                print(f"Netzwerkfehler (Versuch {attempt + 1}): {exc} — Retry in {delay}s")
                 time.sleep(delay)
             else:
                 raise
@@ -78,17 +87,19 @@ def fetch_with_retry(api_key: str, payload: dict, retries: int = 1, delay: int =
 def main() -> None:
     now_utc = dt.datetime.now(dt.timezone.utc)
 
-    if not is_within_window(now_utc):
+    timezone = os.environ.get("TIMEZONE", "Europe/Berlin")
+    if not is_within_window(now_utc, timezone=timezone):
         print(f"Außerhalb des Zeitfensters ({now_utc.isoformat()}), kein API-Call.")
         sys.exit(0)
 
-    api_key = os.environ["GOOGLE_MAPS_API_KEY"]
+    api_key = os.environ.get("GOOGLE_MAPS_API_KEY")
+    if not api_key:
+        raise ValueError("GOOGLE_MAPS_API_KEY Umgebungsvariable ist nicht gesetzt")
     route_id = os.environ.get("ROUTE_ID", "default")
     origin_lat = float(os.environ.get("ORIGIN_LAT", "48.7784"))
     origin_lng = float(os.environ.get("ORIGIN_LNG", "9.1800"))
     dest_lat = float(os.environ.get("DEST_LAT", "48.1351"))
     dest_lng = float(os.environ.get("DEST_LNG", "11.5820"))
-    timezone = os.environ.get("TIMEZONE", "Europe/Berlin")
 
     payload = {
         "origin": {"location": {"latLng": {"latitude": origin_lat, "longitude": origin_lng}}},
