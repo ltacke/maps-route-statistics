@@ -59,6 +59,8 @@ def test_build_single_row(tmp_path):
     result = json.loads(json_path.read_text())
     route = result["routes"]["test_route"]
     assert route["latest"]["duration_seconds"] == 4500
+    assert route["latest"]["origin_lat"] == 48.7784
+    assert route["latest"]["destination_lat"] == 48.1351
     assert route["by_weekday_hour"]["Monday"]["08"]["avg"] == 4500
     assert route["by_weekday_hour"]["Monday"]["08"]["min"] == 4500
     assert route["by_weekday_hour"]["Monday"]["08"]["max"] == 4500

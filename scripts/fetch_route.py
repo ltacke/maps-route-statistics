@@ -1,9 +1,10 @@
 """
 fetch_route.py — Google Routes API Call, Zeitfenster-Guard, Retry, CSV-Append
 
+Berechnet pro Run beide Richtungen (outbound + return).
+
 Umgebungsvariablen:
     GOOGLE_MAPS_API_KEY  (required)
-    ROUTE_ID             (default: "default")
     ORIGIN_LAT           (default: 48.7784)
     ORIGIN_LNG           (default: 9.1800)
     DEST_LAT             (default: 48.1351)
@@ -27,7 +28,6 @@ from build_stats import build as build_stats
 
 _REPO_ROOT = Path(__file__).parent.parent
 _CSV_PATH = _REPO_ROOT / "data" / "route_history.csv"
-_TIMEZONE = os.environ.get("TIMEZONE", "Europe/Berlin")
 
 FIELDNAMES = [
     "route_id", "timestamp_utc", "weekday_local", "hour_local",
@@ -36,17 +36,34 @@ FIELDNAMES = [
 ]
 
 
-def is_within_window(now_utc: dt.datetime, timezone: str = _TIMEZONE) -> bool:
-    """Gibt True zurück wenn now_utc innerhalb Werktag 05–22 Uhr lokaler Zeit liegt."""
+def is_within_window(now_utc: dt.datetime, timezone: str = "Europe/Berlin") -> bool:
+    """Gibt True zurück wenn now_utc in einem aktiven Abfrageintervall liegt.
+
+    Aktive Zeitfenster (lokale Zeit, Werktage Mo–Fr):
+      - Morgens: 06:00–09:00 Uhr, 15-Minuten-Takt  → jede Minute in Slot 0,15,30,45
+      - Abends:  16:00–19:00 Uhr, 30-Minuten-Takt  → jede Minute in Slot 0,30
+    """
     now_local = now_utc.astimezone(ZoneInfo(timezone))
     if now_local.weekday() >= 5:  # Samstag=5, Sonntag=6
         return False
-    return 5 <= now_local.hour < 22
+
+    hour = now_local.hour
+    minute = now_local.minute
+
+    # Morgens 06–08 Uhr (09:00 ist Endpunkt, also Stunden 6,7,8), 15-Min-Takt
+    if 6 <= hour < 9 and minute % 15 == 0:
+        return True
+
+    # Abends 16–18 Uhr (19:00 ist Endpunkt, also Stunden 16,17,18), 30-Min-Takt
+    if 16 <= hour < 19 and minute % 30 == 0:
+        return True
+
+    return False
 
 
 def parse_duration(value) -> int:
     """Parst Googles duration-String '3600s' oder '3600' zu int."""
-    return int(str(value).replace("s", ""))
+    return int(float(str(value).replace("s", "")))
 
 
 def _call_api(api_key: str, payload: dict) -> dict:
@@ -84,23 +101,17 @@ def fetch_with_retry(api_key: str, payload: dict, retries: int = 1, delay: int =
                 raise
 
 
-def main() -> None:
-    now_utc = dt.datetime.now(dt.timezone.utc)
-
-    timezone = os.environ.get("TIMEZONE") or "Europe/Berlin"
-    if not is_within_window(now_utc, timezone=timezone):
-        print(f"Außerhalb des Zeitfensters ({now_utc.isoformat()}), kein API-Call.")
-        sys.exit(0)
-
-    api_key = os.environ.get("GOOGLE_MAPS_API_KEY")
-    if not api_key:
-        raise ValueError("GOOGLE_MAPS_API_KEY Umgebungsvariable ist nicht gesetzt")
-    route_id = os.environ.get("ROUTE_ID") or "default"
-    origin_lat = float(os.environ.get("ORIGIN_LAT") or "48.7784")
-    origin_lng = float(os.environ.get("ORIGIN_LNG") or "9.1800")
-    dest_lat = float(os.environ.get("DEST_LAT") or "48.1351")
-    dest_lng = float(os.environ.get("DEST_LNG") or "11.5820")
-
+def fetch_one(
+    api_key: str,
+    route_id: str,
+    origin_lat: float,
+    origin_lng: float,
+    dest_lat: float,
+    dest_lng: float,
+    now_utc: dt.datetime,
+    timezone: str,
+) -> dict:
+    """Ruft eine Richtung ab und gibt eine CSV-Zeile zurück."""
     payload = {
         "origin": {"location": {"latLng": {"latitude": origin_lat, "longitude": origin_lng}}},
         "destination": {"location": {"latLng": {"latitude": dest_lat, "longitude": dest_lng}}},
@@ -113,12 +124,12 @@ def main() -> None:
     data = fetch_with_retry(api_key, payload)
     routes = data.get("routes", [])
     if not routes:
-        raise RuntimeError("Keine Route in der API-Antwort gefunden")
+        raise RuntimeError(f"Keine Route in der API-Antwort für route_id={route_id}")
 
     route = routes[0]
     now_local = now_utc.astimezone(ZoneInfo(timezone))
 
-    row = {
+    return {
         "route_id": route_id,
         "timestamp_utc": now_utc.replace(microsecond=0).isoformat(),
         "weekday_local": now_local.strftime("%A"),
@@ -133,14 +144,42 @@ def main() -> None:
         "source": "google_routes_api",
     }
 
+
+def main() -> None:
+    now_utc = dt.datetime.now(dt.timezone.utc)
+    timezone = os.environ.get("TIMEZONE") or "Europe/Berlin"
+
+    if not is_within_window(now_utc, timezone=timezone):
+        print(f"Außerhalb des Zeitfensters ({now_utc.isoformat()}), kein API-Call.")
+        sys.exit(0)
+
+    api_key = os.environ.get("GOOGLE_MAPS_API_KEY")
+    if not api_key:
+        raise ValueError("GOOGLE_MAPS_API_KEY Umgebungsvariable ist nicht gesetzt")
+
+    origin_lat = float(os.environ.get("ORIGIN_LAT") or "48.7784")
+    origin_lng = float(os.environ.get("ORIGIN_LNG") or "9.1800")
+    dest_lat = float(os.environ.get("DEST_LAT") or "48.1351")
+    dest_lng = float(os.environ.get("DEST_LNG") or "11.5820")
+
+    # Beide Richtungen: outbound (A→B) und return (B→A)
+    directions = [
+        ("outbound", origin_lat, origin_lng, dest_lat, dest_lng),
+        ("return",   dest_lat, dest_lng, origin_lat, origin_lng),
+    ]
+
+    rows = []
+    for route_id, o_lat, o_lng, d_lat, d_lng in directions:
+        row = fetch_one(api_key, route_id, o_lat, o_lng, d_lat, d_lng, now_utc, timezone)
+        rows.append(row)
+        print(json.dumps(row, ensure_ascii=False))
+
     write_header = not _CSV_PATH.exists() or _CSV_PATH.stat().st_size == 0
     with _CSV_PATH.open("a", newline="", encoding="utf-8") as f:
         writer = csv.DictWriter(f, fieldnames=FIELDNAMES)
         if write_header:
             writer.writeheader()
-        writer.writerow(row)
-
-    print(json.dumps(row, ensure_ascii=False))
+        writer.writerows(rows)
 
     build_stats()
     print("stats.json aktualisiert.")

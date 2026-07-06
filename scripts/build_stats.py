@@ -68,6 +68,10 @@ def build(
                 "timestamp_utc": latest_row["timestamp_utc"],
                 "duration_seconds": int(latest_row["duration_seconds"]),
                 "static_duration_seconds": int(latest_row["static_duration_seconds"]),
+                "origin_lat": float(latest_row["origin_lat"]),
+                "origin_lng": float(latest_row["origin_lng"]),
+                "destination_lat": float(latest_row["destination_lat"]),
+                "destination_lng": float(latest_row["destination_lng"]),
             },
             "by_weekday_hour": aggregated,
         }

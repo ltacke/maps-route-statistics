@@ -4,6 +4,8 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Route Monitor</title>
+  <link rel="stylesheet" href="vendor/leaflet.min.css">
+  <script src="vendor/leaflet.min.js"></script>
   <script src="vendor/papaparse.min.js"></script>
   <script src="vendor/chart.min.js"></script>
   <style>
@@ -73,6 +75,7 @@
     }
     #loading { color: #57606a; font-size: 13px; }
     #error { color: #dc2626; font-size: 13px; display: none; }
+    #route-map { height: 260px; border-radius: 4px; border: 1px solid #e5e7eb; }
   </style>
 </head>
 <body>
@@ -81,6 +84,12 @@
   <p class="subtitle" id="route-label">Lade Daten…</p>
   <p id="loading">Daten werden geladen…</p>
   <p id="error"></p>
+
+  <!-- Karte -->
+  <div class="card" id="card-map" style="display:none">
+    <h2 id="map-title">Route</h2>
+    <div id="route-map"></div>
+  </div>
 
   <!-- Aktueller Wert -->
   <div class="card" id="card-current" style="display:none">
@@ -138,6 +147,7 @@ const WEEKDAY_DE = { Monday:"Mo", Tuesday:"Di", Wednesday:"Mi", Thursday:"Do", F
 const HOURS = Array.from({length: 17}, (_, i) => String(i + 5).padStart(2, "0")); // 05–21
 
 let timeseriesChart = null;
+let routeMap = null;
 let allRows = [];
 let activeDays = 7;
 
@@ -262,6 +272,37 @@ function renderHeatmap(byWeekdayHour) {
   document.getElementById("heatmap-container").innerHTML = html;
 }
 
+// ── Karte ──────────────────────────────────────────────────────────────────────
+
+function renderMap(originLat, originLng, destLat, destLng, label) {
+  document.getElementById("card-map").style.display = "";
+  document.getElementById("map-title").textContent = label;
+
+  if (routeMap) {
+    routeMap.remove();
+    routeMap = null;
+  }
+
+  routeMap = L.map("route-map");
+  L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+    attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
+    maxZoom: 18,
+  }).addTo(routeMap);
+
+  const originMarker = L.marker([originLat, originLng])
+    .bindPopup("<b>Start</b>")
+    .addTo(routeMap);
+  const destMarker = L.marker([destLat, destLng])
+    .bindPopup("<b>Ziel</b>")
+    .addTo(routeMap);
+
+  const bounds = L.latLngBounds(
+    [originLat, originLng],
+    [destLat, destLng]
+  );
+  routeMap.fitBounds(bounds, { padding: [40, 40] });
+}
+
 // ── Hauptlogik ─────────────────────────────────────────────────────────────────
 
 async function init() {
@@ -297,6 +338,19 @@ async function init() {
       document.getElementById("val-timestamp").textContent =
         `Gemessen: ${formatTs(routeData.latest.timestamp_utc)}`;
       document.getElementById("card-current").style.display = "";
+    }
+
+    // Karte: Koordinaten aus dem outbound-Datensatz (oder ersten verfügbaren)
+    const outboundData = stats.routes["outbound"] || stats.routes[routeId];
+    if (outboundData && outboundData.latest) {
+      const { origin_lat, origin_lng, destination_lat, destination_lng } = outboundData.latest;
+      if (origin_lat != null && destination_lat != null) {
+        renderMap(
+          parseFloat(origin_lat), parseFloat(origin_lng),
+          parseFloat(destination_lat), parseFloat(destination_lng),
+          "Start → Ziel"
+        );
+      }
     }
 
     // Heatmap

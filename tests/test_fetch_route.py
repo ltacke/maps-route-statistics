@@ -8,61 +8,85 @@ import requests as req_lib
 
 sys.path.insert(0, str(Path(__file__).parent.parent / "scripts"))
 
+from fetch_route import is_within_window, parse_duration, fetch_with_retry
+from zoneinfo import ZoneInfo
 
-# ── Zeitfenster-Guard ─────────────────────────────────────────────────────────
-
-from fetch_route import is_within_window
-
-
-def test_within_window_weekday_morning():
-    # Montag 08:00 Uhr lokal → innerhalb
-    ts = dt.datetime(2025, 1, 13, 8, 0, tzinfo=dt.timezone.utc)  # Montag
-    assert is_within_window(ts) is True
+_TZ = ZoneInfo("Europe/Berlin")
 
 
-def test_within_window_weekday_night():
-    # Montag 23:00 Uhr lokal → außerhalb
-    ts = dt.datetime(2025, 1, 13, 23, 0, tzinfo=dt.timezone.utc)  # Montag
-    assert is_within_window(ts) is False
+def _local(year, month, day, hour, minute=0):
+    """Erzeugt ein tz-aware datetime in Europe/Berlin und gibt UTC zurück."""
+    return dt.datetime(year, month, day, hour, minute, tzinfo=_TZ).astimezone(dt.timezone.utc)
 
 
-def test_within_window_weekend():
-    # Samstag 10:00 Uhr → außerhalb
-    ts = dt.datetime(2025, 1, 11, 10, 0, tzinfo=dt.timezone.utc)  # Samstag
-    assert is_within_window(ts) is False
+# ── Zeitfenster-Guard: Morgens 06–09, 15-Min-Takt ────────────────────────────
+
+def test_morning_slot_on_time():
+    # Mo 06:00 → aktiv (15-Min-Slot)
+    assert is_within_window(_local(2025, 1, 13, 6, 0)) is True
+
+def test_morning_slot_15():
+    # Mo 07:15 → aktiv
+    assert is_within_window(_local(2025, 1, 13, 7, 15)) is True
+
+def test_morning_slot_30():
+    # Mo 08:30 → aktiv
+    assert is_within_window(_local(2025, 1, 13, 8, 30)) is True
+
+def test_morning_slot_off_minute():
+    # Mo 07:01 → nicht aktiv (kein 15-Min-Slot)
+    assert is_within_window(_local(2025, 1, 13, 7, 1)) is False
+
+def test_morning_end_boundary():
+    # Mo 09:00 → nicht aktiv (Endpunkt exklusiv: hour < 9)
+    assert is_within_window(_local(2025, 1, 13, 9, 0)) is False
+
+def test_morning_before_start():
+    # Mo 05:45 → nicht aktiv
+    assert is_within_window(_local(2025, 1, 13, 5, 45)) is False
 
 
-def test_within_window_boundary_start():
-    # 05:00 Uhr lokal (MEZ = UTC+1, also UTC 04:00) → innerhalb
-    from zoneinfo import ZoneInfo
-    tz = ZoneInfo("Europe/Berlin")
-    local_5am_monday = dt.datetime(2025, 1, 13, 5, 0, tzinfo=tz)
-    utc_ts = local_5am_monday.astimezone(dt.timezone.utc)
-    assert is_within_window(utc_ts) is True
+# ── Zeitfenster-Guard: Abends 16–19, 30-Min-Takt ─────────────────────────────
+
+def test_evening_slot_on_time():
+    # Mo 16:00 → aktiv (30-Min-Slot)
+    assert is_within_window(_local(2025, 1, 13, 16, 0)) is True
+
+def test_evening_slot_half():
+    # Mo 17:30 → aktiv
+    assert is_within_window(_local(2025, 1, 13, 17, 30)) is True
+
+def test_evening_slot_off_minute():
+    # Mo 16:15 → nicht aktiv (kein 30-Min-Slot)
+    assert is_within_window(_local(2025, 1, 13, 16, 15)) is False
+
+def test_evening_end_boundary():
+    # Mo 19:00 → nicht aktiv (Endpunkt exklusiv: hour < 19)
+    assert is_within_window(_local(2025, 1, 13, 19, 0)) is False
+
+def test_midday_inactive():
+    # Mo 12:00 → nicht aktiv (zwischen den Fenstern)
+    assert is_within_window(_local(2025, 1, 13, 12, 0)) is False
 
 
-def test_within_window_boundary_before_start():
-    # 04:59 Uhr lokal → außerhalb
-    from zoneinfo import ZoneInfo
-    tz = ZoneInfo("Europe/Berlin")
-    local_459am_monday = dt.datetime(2025, 1, 13, 4, 59, tzinfo=tz)
-    utc_ts = local_459am_monday.astimezone(dt.timezone.utc)
-    assert is_within_window(utc_ts) is False
+# ── Zeitfenster-Guard: Wochenende ────────────────────────────────────────────
+
+def test_weekend_morning():
+    # Sa 07:00 → nicht aktiv
+    assert is_within_window(_local(2025, 1, 11, 7, 0)) is False
+
+def test_weekend_evening():
+    # So 17:00 → nicht aktiv
+    assert is_within_window(_local(2025, 1, 12, 17, 0)) is False
 
 
-# ── parse_duration ─────────────────────────────────────────────────────────────
-
-from fetch_route import parse_duration
-from fetch_route import fetch_with_retry
-
+# ── parse_duration ────────────────────────────────────────────────────────────
 
 def test_parse_duration_with_s():
     assert parse_duration("3600s") == 3600
 
-
 def test_parse_duration_without_s():
     assert parse_duration("4500") == 4500
-
 
 def test_parse_duration_integer():
     assert parse_duration(1800) == 1800
@@ -112,21 +136,3 @@ def test_fetch_with_retry_does_not_retry_4xx():
         with pytest.raises(req_lib.HTTPError):
             fetch_with_retry("key", {}, delay=0)
     assert call_count == 1, "4xx should not be retried"
-
-
-def test_within_window_boundary_end():
-    # 22:00 Uhr lokal → außerhalb (hour < 22 required)
-    from zoneinfo import ZoneInfo
-    tz = ZoneInfo("Europe/Berlin")
-    local_22_monday = dt.datetime(2025, 1, 13, 22, 0, tzinfo=tz)
-    utc_ts = local_22_monday.astimezone(dt.timezone.utc)
-    assert is_within_window(utc_ts) is False
-
-
-def test_within_window_boundary_before_end():
-    # 21:59 Uhr lokal → innerhalb
-    from zoneinfo import ZoneInfo
-    tz = ZoneInfo("Europe/Berlin")
-    local_2159_monday = dt.datetime(2025, 1, 13, 21, 59, tzinfo=tz)
-    utc_ts = local_2159_monday.astimezone(dt.timezone.utc)
-    assert is_within_window(utc_ts) is True
