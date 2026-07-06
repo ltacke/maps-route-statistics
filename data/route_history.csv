@@ -1,0 +1,1 @@
+route_id,timestamp_utc,weekday_local,hour_local,origin_lat,origin_lng,destination_lat,destination_lng,duration_seconds,static_duration_seconds,travel_mode,source
