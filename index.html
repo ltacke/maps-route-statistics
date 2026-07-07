@@ -325,6 +325,16 @@ const WEEKDAY_ORDER = ["Monday","Tuesday","Wednesday","Thursday","Friday"];
 const WEEKDAY_DE = { Monday:"Mo", Tuesday:"Di", Wednesday:"Mi", Thursday:"Do", Friday:"Fr" };
 const HOURS = Array.from({length: 17}, (_, i) => String(i + 5).padStart(2, "0")); // 05–21
 
+// Relevante Stunden pro Richtung (zeitbasierte Logik)
+const RELEVANT_HOURS = {
+  outbound: ["06", "07", "08", "09", "10", "11"],  // Morgens zur Arbeit
+  return: ["12", "13", "14", "15", "16", "17", "18", "19"]  // Nachmittags/Abends nach Hause
+};
+
+function isRelevantHour(hour, routeId) {
+  return RELEVANT_HOURS[routeId].includes(String(hour).padStart(2, "0"));
+}
+
 let timeseriesChart = null;
 let weekdayChart = null;
 let monthlyChart = null;
@@ -373,14 +383,16 @@ function formatTs(isoStr) {
 
 // ── Analysen ───────────────────────────────────────────────────────────────────
 
-function analyzeBestTimes(routeData) {
-  // Findet die beste Zeit pro Wochentag
+function analyzeBestTimes(routeData, routeId) {
+  // Findet die beste Zeit pro Wochentag (nur relevante Stunden)
   const recommendations = {};
   for (const day of WEEKDAY_ORDER) {
     if (!routeData.by_weekday_hour[day]) continue;
     let bestHour = null;
     let bestTime = Infinity;
     for (const [hour, data] of Object.entries(routeData.by_weekday_hour[day])) {
+      // Nur relevante Stunden berücksichtigen
+      if (!isRelevantHour(hour, routeId)) continue;
       if (data.avg < bestTime) {
         bestTime = data.avg;
         bestHour = hour;
@@ -393,13 +405,15 @@ function analyzeBestTimes(routeData) {
   return recommendations;
 }
 
-function analyzeWorstTimes(routeData) {
+function analyzeWorstTimes(routeData, routeId) {
   const worst = {};
   for (const day of WEEKDAY_ORDER) {
     if (!routeData.by_weekday_hour[day]) continue;
     let worstHour = null;
     let worstTime = -Infinity;
     for (const [hour, data] of Object.entries(routeData.by_weekday_hour[day])) {
+      // Nur relevante Stunden berücksichtigen
+      if (!isRelevantHour(hour, routeId)) continue;
       if (data.avg > worstTime) {
         worstTime = data.avg;
         worstHour = hour;
@@ -413,10 +427,12 @@ function analyzeWorstTimes(routeData) {
 }
 
 function calculateReliability(rows, routeId) {
-  // Berechnet Standardabweichung pro Stunde
+  // Berechnet Standardabweichung pro Stunde (nur relevante Stunden)
   const byHour = {};
   rows.filter(r => r.route_id === routeId).forEach(r => {
     const hour = new Date(r.timestamp_utc).getHours();
+    // Nur relevante Stunden berücksichtigen
+    if (!isRelevantHour(String(hour).padStart(2, '0'), routeId)) return;
     if (!byHour[hour]) byHour[hour] = [];
     byHour[hour].push(parseInt(r.duration_seconds));
   });
@@ -533,18 +549,27 @@ function renderTimeseries(rows, days) {
 
 // ── Heatmap ────────────────────────────────────────────────────────────────────
 
-function renderHeatmap(byWeekdayHour, containerId) {
+function renderHeatmap(byWeekdayHour, containerId, routeId) {
   const days = WEEKDAY_ORDER.filter(d => byWeekdayHour[d]);
   if (days.length === 0) return;
 
-  // Alle Werte für Farbskala sammeln
+  // Nur relevante Stunden für diese Richtung
+  const relevantHours = HOURS.filter(h => isRelevantHour(h, routeId));
+
+  // Alle Werte für Farbskala sammeln (nur relevante Stunden)
   const allVals = [];
   for (const d of days) {
-    for (const h of HOURS) {
+    for (const h of relevantHours) {
       const cell = byWeekdayHour[d]?.[h];
       if (cell) allVals.push(cell.avg);
     }
   }
+
+  if (allVals.length === 0) {
+    document.getElementById(containerId).innerHTML = '<p style="color:#57606a;font-size:13px">Noch keine Daten für relevante Zeitfenster.</p>';
+    return;
+  }
+
   const minVal = Math.min(...allVals);
   const maxVal = Math.max(...allVals);
 
@@ -552,7 +577,7 @@ function renderHeatmap(byWeekdayHour, containerId) {
   for (const d of days) html += `<th>${WEEKDAY_DE[d]}</th>`;
   html += "</tr></thead><tbody>";
 
-  for (const h of HOURS) {
+  for (const h of relevantHours) {
     html += `<tr><td><strong>${h}:00</strong></td>`;
     for (const d of days) {
       const cell = byWeekdayHour[d]?.[h];
@@ -576,7 +601,7 @@ function renderRecommendations(routeId) {
   const routeData = statsData.routes[routeId];
   if (!routeData) return;
 
-  const best = analyzeBestTimes(routeData);
+  const best = analyzeBestTimes(routeData, routeId);
   let html = '<div style="font-size:13px">';
   for (const day of WEEKDAY_ORDER) {
     if (best[day]) {
@@ -598,11 +623,13 @@ function renderRanking(routeId) {
   const routeData = statsData.routes[routeId];
   if (!routeData) return;
 
-  // Alle Zeitfenster sammeln
+  // Alle Zeitfenster sammeln (nur relevante Stunden)
   const times = [];
   for (const day of WEEKDAY_ORDER) {
     if (!routeData.by_weekday_hour[day]) continue;
     for (const [hour, data] of Object.entries(routeData.by_weekday_hour[day])) {
+      // Nur relevante Stunden berücksichtigen
+      if (!isRelevantHour(hour, routeId)) continue;
       times.push({ day, hour, duration: data.avg, count: data.count });
     }
   }
@@ -842,7 +869,7 @@ function renderDelayChart(routeId) {
 // ── Zeitersparnis-Rechner ──────────────────────────────────────────────────────
 
 function populateTimeSavingsCalculator() {
-  // Befülle Hour-Dropdowns mit verfügbaren Stunden
+  // Befülle Hour-Dropdowns mit verfügbaren Stunden (nur relevante)
   ['outbound', 'return'].forEach(routeId => {
     const routeData = statsData.routes[routeId];
     if (!routeData) return;
@@ -850,7 +877,10 @@ function populateTimeSavingsCalculator() {
     const hours = new Set();
     for (const day of WEEKDAY_ORDER) {
       if (routeData.by_weekday_hour[day]) {
-        Object.keys(routeData.by_weekday_hour[day]).forEach(h => hours.add(h));
+        Object.keys(routeData.by_weekday_hour[day]).forEach(h => {
+          // Nur relevante Stunden hinzufügen
+          if (isRelevantHour(h, routeId)) hours.add(h);
+        });
       }
     }
 
@@ -874,7 +904,7 @@ function calculateSavings(routeId) {
   }
 
   const selectedTime = routeData.by_weekday_hour[day][hour].avg;
-  const best = analyzeBestTimes(routeData);
+  const best = analyzeBestTimes(routeData, routeId);
   const bestForDay = best[day];
 
   if (!bestForDay) {
@@ -1043,12 +1073,12 @@ function displayAllRoutes() {
     }
   }
 
-  // Heatmaps for both routes
+  // Heatmaps for both routes (nur relevante Stunden)
   if (statsData.routes["outbound"]?.by_weekday_hour) {
-    renderHeatmap(statsData.routes["outbound"].by_weekday_hour, "heatmap-container-outbound");
+    renderHeatmap(statsData.routes["outbound"].by_weekday_hour, "heatmap-container-outbound", "outbound");
   }
   if (statsData.routes["return"]?.by_weekday_hour) {
-    renderHeatmap(statsData.routes["return"].by_weekday_hour, "heatmap-container-return");
+    renderHeatmap(statsData.routes["return"].by_weekday_hour, "heatmap-container-return", "return");
   }
 
   // Timeseries with both routes
