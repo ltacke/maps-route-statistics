@@ -1,1 +1,47 @@
-{"last_updated": null, "routes": {}}
+{
+  "last_updated": "2026-07-07T15:57:45+00:00",
+  "routes": {
+    "outbound": {
+      "latest": {
+        "timestamp_utc": "2026-07-07T15:57:44+00:00",
+        "duration_seconds": 2182,
+        "static_duration_seconds": 2099,
+        "origin_lat": 48.7816677,
+        "origin_lng": 9.1623606,
+        "destination_lat": 48.6559123,
+        "destination_lng": 8.9498734
+      },
+      "by_weekday_hour": {
+        "Tuesday": {
+          "17": {
+            "avg": 2182,
+            "min": 2182,
+            "max": 2182,
+            "count": 1
+          }
+        }
+      }
+    },
+    "return": {
+      "latest": {
+        "timestamp_utc": "2026-07-07T15:57:44+00:00",
+        "duration_seconds": 2281,
+        "static_duration_seconds": 1731,
+        "origin_lat": 48.6559123,
+        "origin_lng": 8.9498734,
+        "destination_lat": 48.7816677,
+        "destination_lng": 9.1623606
+      },
+      "by_weekday_hour": {
+        "Tuesday": {
+          "17": {
+            "avg": 2281,
+            "min": 2281,
+            "max": 2281,
+            "count": 1
+          }
+        }
+      }
+    }
+  }
+}
