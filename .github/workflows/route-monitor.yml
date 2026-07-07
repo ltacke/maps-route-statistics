@@ -2,10 +2,10 @@ name: Route Monitor
 
 on:
   schedule:
-    # Morgens 06–09 Uhr Berliner Zeit, 15-Min-Takt (UTC 04–07 Winter / 03–06 Sommer)
-    - cron: '0,15,30,45 3-7 * * 1-5'
-    # Abends 16–19 Uhr Berliner Zeit, 30-Min-Takt (UTC 14–17 Winter / 13–16 Sommer)
-    - cron: '0,30 13-17 * * 1-5'
+    # Morgens 06–09 Uhr Berliner Zeit, 15-Min-Takt (UTC+2 Sommer → 04–07 UTC)
+    - cron: '0,15,30,45 4-6 * * 1-5'
+    # Abends 16–19 Uhr Berliner Zeit, 30-Min-Takt (UTC+2 Sommer → 14–17 UTC)
+    - cron: '0,30 14-16 * * 1-5'
   workflow_dispatch:
 
 permissions:
