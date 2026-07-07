@@ -91,27 +91,55 @@
     <div id="route-map"></div>
   </div>
 
-  <!-- Aktueller Wert -->
+  <!-- Aktueller Wert - Beide Richtungen -->
   <div class="card" id="card-current" style="display:none">
     <h2>Aktuell</h2>
-    <div class="stat-row">
-      <div class="stat">
-        <div class="label">Fahrtdauer</div>
-        <div class="value" id="val-duration">—</div>
-        <span class="unit">min</span>
+
+    <!-- Hinfahrt -->
+    <div style="margin-bottom:24px">
+      <h3 style="font-size:14px;font-weight:600;margin-bottom:12px;color:#3b82d4">→ Hinfahrt</h3>
+      <div class="stat-row">
+        <div class="stat">
+          <div class="label">Fahrtdauer</div>
+          <div class="value" id="val-duration-outbound">—</div>
+          <span class="unit">min</span>
+        </div>
+        <div class="stat">
+          <div class="label">Ohne Verkehr</div>
+          <div class="value" id="val-static-outbound">—</div>
+          <span class="unit">min</span>
+        </div>
+        <div class="stat">
+          <div class="label">Verzögerung</div>
+          <div class="value" id="val-delay-outbound">—</div>
+          <span class="unit">min</span>
+        </div>
       </div>
-      <div class="stat">
-        <div class="label">Ohne Verkehr</div>
-        <div class="value" id="val-static">—</div>
-        <span class="unit">min</span>
-      </div>
-      <div class="stat">
-        <div class="label">Verzögerung</div>
-        <div class="value" id="val-delay">—</div>
-        <span class="unit">min</span>
-      </div>
+      <div style="font-size:12px;color:#57606a;margin-top:8px" id="val-timestamp-outbound"></div>
     </div>
-    <div style="font-size:12px;color:#57606a;margin-top:8px" id="val-timestamp"></div>
+
+    <!-- Rückfahrt -->
+    <div>
+      <h3 style="font-size:14px;font-weight:600;margin-bottom:12px;color:#16a34a">← Rückfahrt</h3>
+      <div class="stat-row">
+        <div class="stat">
+          <div class="label">Fahrtdauer</div>
+          <div class="value" id="val-duration-return">—</div>
+          <span class="unit">min</span>
+        </div>
+        <div class="stat">
+          <div class="label">Ohne Verkehr</div>
+          <div class="value" id="val-static-return">—</div>
+          <span class="unit">min</span>
+        </div>
+        <div class="stat">
+          <div class="label">Verzögerung</div>
+          <div class="value" id="val-delay-return">—</div>
+          <span class="unit">min</span>
+        </div>
+      </div>
+      <div style="font-size:12px;color:#57606a;margin-top:8px" id="val-timestamp-return"></div>
+    </div>
   </div>
 
   <!-- Zeitreihenchart -->
@@ -127,12 +155,20 @@
     </div>
   </div>
 
-  <!-- Heatmap -->
+  <!-- Heatmaps - Beide Richtungen -->
   <div class="card">
     <h2>Durchschnitt nach Wochentag & Uhrzeit</h2>
+
+    <h3 style="font-size:14px;font-weight:600;margin-bottom:12px;margin-top:16px;color:#3b82d4">→ Hinfahrt</h3>
     <div class="heatmap-wrap">
-      <div id="heatmap-container"><p style="color:#57606a;font-size:13px">Noch keine Aggregationsdaten vorhanden.</p></div>
+      <div id="heatmap-container-outbound"><p style="color:#57606a;font-size:13px">Noch keine Aggregationsdaten vorhanden.</p></div>
     </div>
+
+    <h3 style="font-size:14px;font-weight:600;margin-bottom:12px;margin-top:24px;color:#16a34a">← Rückfahrt</h3>
+    <div class="heatmap-wrap">
+      <div id="heatmap-container-return"><p style="color:#57606a;font-size:13px">Noch keine Aggregationsdaten vorhanden.</p></div>
+    </div>
+
     <div class="legend">
       <span>schnell</span>
       <div class="legend-bar"></div>
@@ -150,6 +186,7 @@ let timeseriesChart = null;
 let routeMap = null;
 let allRows = [];
 let activeDays = 7;
+let statsData = null;
 
 // ── Hilfsfunktionen ────────────────────────────────────────────────────────────
 
@@ -183,18 +220,17 @@ function formatTs(isoStr) {
 
 // ── Zeitreihenchart ────────────────────────────────────────────────────────────
 
-function buildTimeseries(rows, days) {
-  const cutoff = new Date(Date.now() - days * 86400 * 1000);
-  const filtered = rows.filter(r => new Date(r.timestamp_utc) >= cutoff);
-  const labels = filtered.map(r => formatTs(r.timestamp_utc));
-  const duration = filtered.map(r => secToMin(parseInt(r.duration_seconds)));
-  const staticDur = filtered.map(r => secToMin(parseInt(r.static_duration_seconds)));
-  return { labels, duration, staticDur };
-}
-
 function renderTimeseries(rows, days) {
   const ctx = document.getElementById("chart-timeseries").getContext("2d");
-  const { labels, duration, staticDur } = buildTimeseries(rows, days);
+  const cutoff = new Date(Date.now() - days * 86400 * 1000);
+
+  // Separate outbound and return
+  const outbound = rows.filter(r => r.route_id === "outbound" && new Date(r.timestamp_utc) >= cutoff);
+  const returnRoute = rows.filter(r => r.route_id === "return" && new Date(r.timestamp_utc) >= cutoff);
+
+  // Use timestamps from outbound as labels (they should be identical)
+  const labels = outbound.map(r => formatTs(r.timestamp_utc));
+
   if (timeseriesChart) timeseriesChart.destroy();
   timeseriesChart = new Chart(ctx, {
     type: "line",
@@ -202,8 +238,8 @@ function renderTimeseries(rows, days) {
       labels,
       datasets: [
         {
-          label: "Mit Verkehr",
-          data: duration,
+          label: "Hinfahrt",
+          data: outbound.map(r => secToMin(parseInt(r.duration_seconds))),
           borderColor: "#3b82d4",
           backgroundColor: "rgba(59,130,212,0.08)",
           borderWidth: 2,
@@ -211,12 +247,12 @@ function renderTimeseries(rows, days) {
           tension: 0.3,
         },
         {
-          label: "Ohne Verkehr",
-          data: staticDur,
-          borderColor: "#9ca3af",
-          borderDash: [4, 4],
-          borderWidth: 1.5,
-          pointRadius: 0,
+          label: "Rückfahrt",
+          data: returnRoute.map(r => secToMin(parseInt(r.duration_seconds))),
+          borderColor: "#16a34a",
+          backgroundColor: "rgba(22,163,74,0.08)",
+          borderWidth: 2,
+          pointRadius: labels.length > 100 ? 0 : 3,
           tension: 0.3,
         },
       ],
@@ -235,7 +271,7 @@ function renderTimeseries(rows, days) {
 
 // ── Heatmap ────────────────────────────────────────────────────────────────────
 
-function renderHeatmap(byWeekdayHour) {
+function renderHeatmap(byWeekdayHour, containerId) {
   const days = WEEKDAY_ORDER.filter(d => byWeekdayHour[d]);
   if (days.length === 0) return;
 
@@ -269,7 +305,7 @@ function renderHeatmap(byWeekdayHour) {
     html += "</tr>";
   }
   html += "</tbody></table>";
-  document.getElementById("heatmap-container").innerHTML = html;
+  document.getElementById(containerId).innerHTML = html;
 }
 
 // ── Karte ──────────────────────────────────────────────────────────────────────
@@ -289,18 +325,84 @@ function renderMap(originLat, originLng, destLat, destLng, label) {
     maxZoom: 18,
   }).addTo(routeMap);
 
-  const originMarker = L.marker([originLat, originLng])
+  // Start and end markers
+  L.marker([originLat, originLng])
     .bindPopup("<b>Start</b>")
     .addTo(routeMap);
-  const destMarker = L.marker([destLat, destLng])
+  L.marker([destLat, destLng])
     .bindPopup("<b>Ziel</b>")
     .addTo(routeMap);
+
+  // Draw a simple straight line between origin and destination
+  // (Google Routes API doesn't return the actual path geometry in our current setup)
+  L.polyline(
+    [[originLat, originLng], [destLat, destLng]],
+    { color: '#3b82d4', weight: 3, opacity: 0.7 }
+  ).addTo(routeMap);
 
   const bounds = L.latLngBounds(
     [originLat, originLng],
     [destLat, destLng]
   );
   routeMap.fitBounds(bounds, { padding: [40, 40] });
+}
+
+// ── Display single route stats ────────────────────────────────────────────────
+
+function displayRouteStats(routeId) {
+  const routeData = statsData.routes[routeId];
+  if (!routeData || !routeData.latest) return;
+
+  const dur = secToMin(routeData.latest.duration_seconds);
+  const sta = secToMin(routeData.latest.static_duration_seconds);
+  const delay = dur - sta;
+
+  document.getElementById(`val-duration-${routeId}`).textContent = dur;
+  document.getElementById(`val-static-${routeId}`).textContent = sta;
+  const delayEl = document.getElementById(`val-delay-${routeId}`);
+  delayEl.textContent = delay > 0 ? `+${delay}` : delay;
+  delayEl.className = `value ${delay > 0 ? "delay-positive" : delay < 0 ? "delay-negative" : "delay-zero"}`;
+  document.getElementById(`val-timestamp-${routeId}`).textContent =
+    `Gemessen: ${formatTs(routeData.latest.timestamp_utc)}`;
+}
+
+// ── Display all routes ─────────────────────────────────────────────────────────
+
+function displayAllRoutes() {
+  // Label
+  document.getElementById("route-label").textContent =
+    `Stand: ${formatTs(statsData.last_updated)}`;
+
+  // Stats for both routes
+  displayRouteStats("outbound");
+  displayRouteStats("return");
+  document.getElementById("card-current").style.display = "";
+
+  // Map (use outbound coordinates)
+  const outboundData = statsData.routes["outbound"];
+  if (outboundData && outboundData.latest) {
+    const { origin_lat, origin_lng, destination_lat, destination_lng } = outboundData.latest;
+    if (origin_lat != null && destination_lat != null) {
+      renderMap(
+        parseFloat(origin_lat), parseFloat(origin_lng),
+        parseFloat(destination_lat), parseFloat(destination_lng),
+        "Route"
+      );
+    }
+  }
+
+  // Heatmaps for both routes
+  if (statsData.routes["outbound"]?.by_weekday_hour) {
+    renderHeatmap(statsData.routes["outbound"].by_weekday_hour, "heatmap-container-outbound");
+  }
+  if (statsData.routes["return"]?.by_weekday_hour) {
+    renderHeatmap(statsData.routes["return"].by_weekday_hour, "heatmap-container-return");
+  }
+
+  // Timeseries with both routes
+  if (allRows.length > 0) {
+    renderTimeseries(allRows, activeDays);
+  }
 }
 
 // ── Hauptlogik ─────────────────────────────────────────────────────────────────
@@ -310,77 +412,34 @@ async function init() {
     // stats.json laden
     const statsRes = await fetch("data/stats.json");
     if (!statsRes.ok) throw new Error("stats.json nicht gefunden");
-    const stats = await statsRes.json();
+    statsData = await statsRes.json();
 
-    const routeKeys = Object.keys(stats.routes || {});
+    const routeKeys = Object.keys(statsData.routes || {});
     if (routeKeys.length === 0) {
       document.getElementById("loading").textContent = "Noch keine Daten vorhanden.";
       return;
     }
 
-    // Prefer outbound for display, fallback to first available
-    const routeId = stats.routes["outbound"] ? "outbound" : routeKeys[0];
-    const routeData = stats.routes[routeId];
-
-    // Label
-    document.getElementById("route-label").textContent =
-      `Route: ${routeId} · Stand: ${formatTs(stats.last_updated)}`;
-
-    // Aktueller Wert
-    if (routeData.latest) {
-      const dur = secToMin(routeData.latest.duration_seconds);
-      const sta = secToMin(routeData.latest.static_duration_seconds);
-      const delay = dur - sta;
-      document.getElementById("val-duration").textContent = dur;
-      document.getElementById("val-static").textContent = sta;
-      const delayEl = document.getElementById("val-delay");
-      delayEl.textContent = delay > 0 ? `+${delay}` : delay;
-      delayEl.className = `value ${delay > 0 ? "delay-positive" : delay < 0 ? "delay-negative" : "delay-zero"}`;
-      document.getElementById("val-timestamp").textContent =
-        `Gemessen: ${formatTs(routeData.latest.timestamp_utc)}`;
-      document.getElementById("card-current").style.display = "";
-    }
-
-    // Karte: Koordinaten aus dem outbound-Datensatz (oder ersten verfügbaren)
-    const outboundData = stats.routes["outbound"] || stats.routes[routeId];
-    if (outboundData && outboundData.latest) {
-      const { origin_lat, origin_lng, destination_lat, destination_lng } = outboundData.latest;
-      if (origin_lat != null && destination_lat != null) {
-        renderMap(
-          parseFloat(origin_lat), parseFloat(origin_lng),
-          parseFloat(destination_lat), parseFloat(destination_lng),
-          "Start → Ziel"
-        );
-      }
-    }
-
-    // Heatmap
-    if (routeData.by_weekday_hour) {
-      renderHeatmap(routeData.by_weekday_hour);
-    }
-
-    // CSV für Zeitreihe laden (Fehler werden lokal behandelt, Heatmap bleibt sichtbar)
+    // CSV laden
     try {
       const csvRes = await fetch("data/route_history.csv");
       if (!csvRes.ok) throw new Error("route_history.csv nicht gefunden");
       const csvText = await csvRes.text();
       const parsed = Papa.parse(csvText, { header: true, skipEmptyLines: true });
-      // Show only the selected route (outbound or return) in the timeseries
-      allRows = parsed.data.filter(r => r.route_id === routeId);
+      allRows = parsed.data;
       allRows.sort((a, b) => a.timestamp_utc.localeCompare(b.timestamp_utc));
-      if (allRows.length > 0) {
-        renderTimeseries(allRows, activeDays);
-      }
     } catch (csvErr) {
-      // Zeitreihenchart-Fehler: Meldung in der Chart-Karte anzeigen, Rest bleibt sichtbar
       const chartWrap = document.querySelector(".chart-wrap");
       if (chartWrap) chartWrap.innerHTML = `<p style="color:#dc2626;font-size:13px;padding:8px">Verlaufsdaten konnten nicht geladen werden: ${csvErr.message}</p>`;
     }
 
-    // Toggle-Buttons
-    document.querySelectorAll(".toggle-btn").forEach(btn => {
+    // Initial display
+    displayAllRoutes();
+
+    // Time range toggle buttons
+    document.querySelectorAll(".toggle-btn[data-days]").forEach(btn => {
       btn.addEventListener("click", () => {
-        document.querySelectorAll(".toggle-btn").forEach(b => b.classList.remove("active"));
+        document.querySelectorAll(".toggle-btn[data-days]").forEach(b => b.classList.remove("active"));
         btn.classList.add("active");
         activeDays = parseInt(btn.dataset.days);
         renderTimeseries(allRows, activeDays);
