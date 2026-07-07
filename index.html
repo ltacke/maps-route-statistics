@@ -175,6 +175,62 @@
     </div>
   </div>
 
+  <!-- Zeitersparnis-Rechner -->
+  <div class="card" id="card-time-savings" style="display:none">
+    <h2>⏱️ Zeitersparnis-Rechner</h2>
+    <p style="font-size:13px;color:#57606a;margin-bottom:16px">
+      Vergleiche zwei Zeitfenster und sehe wie viel Zeit du sparen kannst.
+    </p>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px">
+      <div>
+        <h3 style="font-size:14px;font-weight:600;margin-bottom:12px;color:#3b82d4">→ Hinfahrt</h3>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px">
+          <div>
+            <label style="font-size:12px;color:#57606a;display:block;margin-bottom:4px">Wochentag</label>
+            <select id="calc-day-outbound" style="width:100%;padding:6px;border:1px solid #e5e7eb;border-radius:4px;font-size:13px">
+              <option value="Monday">Montag</option>
+              <option value="Tuesday">Dienstag</option>
+              <option value="Wednesday">Mittwoch</option>
+              <option value="Thursday">Donnerstag</option>
+              <option value="Friday">Freitag</option>
+            </select>
+          </div>
+          <div>
+            <label style="font-size:12px;color:#57606a;display:block;margin-bottom:4px">Uhrzeit</label>
+            <select id="calc-hour-outbound" style="width:100%;padding:6px;border:1px solid #e5e7eb;border-radius:4px;font-size:13px"></select>
+          </div>
+        </div>
+        <button onclick="calculateSavings('outbound')" style="width:100%;padding:8px;background:#3b82d4;color:white;border:none;border-radius:4px;cursor:pointer;font-size:13px">
+          Berechnen
+        </button>
+        <div id="calc-result-outbound" style="margin-top:12px;font-size:13px"></div>
+      </div>
+      <div>
+        <h3 style="font-size:14px;font-weight:600;margin-bottom:12px;color:#16a34a">← Rückfahrt</h3>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px">
+          <div>
+            <label style="font-size:12px;color:#57606a;display:block;margin-bottom:4px">Wochentag</label>
+            <select id="calc-day-return" style="width:100%;padding:6px;border:1px solid #e5e7eb;border-radius:4px;font-size:13px">
+              <option value="Monday">Montag</option>
+              <option value="Tuesday">Dienstag</option>
+              <option value="Wednesday">Mittwoch</option>
+              <option value="Thursday">Donnerstag</option>
+              <option value="Friday">Freitag</option>
+            </select>
+          </div>
+          <div>
+            <label style="font-size:12px;color:#57606a;display:block;margin-bottom:4px">Uhrzeit</label>
+            <select id="calc-hour-return" style="width:100%;padding:6px;border:1px solid #e5e7eb;border-radius:4px;font-size:13px"></select>
+          </div>
+        </div>
+        <button onclick="calculateSavings('return')" style="width:100%;padding:8px;background:#16a34a;color:white;border:none;border-radius:4px;cursor:pointer;font-size:13px">
+          Berechnen
+        </button>
+        <div id="calc-result-return" style="margin-top:12px;font-size:13px"></div>
+      </div>
+    </div>
+  </div>
+
   <!-- Wochentag-Vergleich -->
   <div class="card">
     <h2>Wochentag-Vergleich</h2>
@@ -783,6 +839,81 @@ function renderDelayChart(routeId) {
   });
 }
 
+// ── Zeitersparnis-Rechner ──────────────────────────────────────────────────────
+
+function populateTimeSavingsCalculator() {
+  // Befülle Hour-Dropdowns mit verfügbaren Stunden
+  ['outbound', 'return'].forEach(routeId => {
+    const routeData = statsData.routes[routeId];
+    if (!routeData) return;
+
+    const hours = new Set();
+    for (const day of WEEKDAY_ORDER) {
+      if (routeData.by_weekday_hour[day]) {
+        Object.keys(routeData.by_weekday_hour[day]).forEach(h => hours.add(h));
+      }
+    }
+
+    const sortedHours = Array.from(hours).sort((a, b) => parseInt(a) - parseInt(b));
+    const select = document.getElementById(`calc-hour-${routeId}`);
+    select.innerHTML = sortedHours.map(h => `<option value="${h}">${h}:00</option>`).join('');
+  });
+
+  document.getElementById("card-time-savings").style.display = "";
+}
+
+function calculateSavings(routeId) {
+  const day = document.getElementById(`calc-day-${routeId}`).value;
+  const hour = document.getElementById(`calc-hour-${routeId}`).value;
+  const routeData = statsData.routes[routeId];
+
+  if (!routeData?.by_weekday_hour[day]?.[hour]) {
+    document.getElementById(`calc-result-${routeId}`).innerHTML =
+      '<p style="color:#dc2626">Keine Daten für diese Zeit vorhanden.</p>';
+    return;
+  }
+
+  const selectedTime = routeData.by_weekday_hour[day][hour].avg;
+  const best = analyzeBestTimes(routeData);
+  const bestForDay = best[day];
+
+  if (!bestForDay) {
+    document.getElementById(`calc-result-${routeId}`).innerHTML =
+      '<p style="color:#dc2626">Keine Vergleichsdaten verfügbar.</p>';
+    return;
+  }
+
+  const savings = selectedTime - bestForDay.duration;
+  const savingsMin = secToMin(Math.abs(savings));
+
+  let html = `<div style="padding:12px;background:#f7f8fa;border-radius:6px">`;
+  html += `<div><strong>${WEEKDAY_DE[day]} um ${hour}:00 Uhr</strong></div>`;
+  html += `<div style="margin:8px 0">Fahrtdauer: <strong>${secToMin(selectedTime)} Min</strong></div>`;
+
+  if (savings > 0) {
+    html += `<div style="color:#16a34a;font-weight:600">
+      ⚡ Du könntest <strong>${savingsMin} Min</strong> sparen!
+    </div>`;
+    html += `<div style="margin-top:8px;font-size:12px;color:#57606a">
+      Beste Zeit: ${bestForDay.hour}:00 Uhr (${secToMin(bestForDay.duration)} Min)
+    </div>`;
+  } else if (savings < 0) {
+    html += `<div style="color:#dc2626">
+      🐌 ${savingsMin} Min langsamer als beste Zeit
+    </div>`;
+    html += `<div style="margin-top:8px;font-size:12px;color:#57606a">
+      Beste Zeit: ${bestForDay.hour}:00 Uhr (${secToMin(bestForDay.duration)} Min)
+    </div>`;
+  } else {
+    html += `<div style="color:#16a34a;font-weight:600">
+      ✓ Das ist bereits die beste Zeit!
+    </div>`;
+  }
+
+  html += `</div>`;
+  document.getElementById(`calc-result-${routeId}`).innerHTML = html;
+}
+
 // ── Heute vs. Durchschnitt ─────────────────────────────────────────────────────
 
 function renderTodayVsAverage() {
@@ -950,6 +1081,9 @@ function displayAllRoutes() {
     renderDelayChart("return");
     document.getElementById("card-delay-dist").style.display = "";
   }
+
+  // Zeitersparnis-Rechner
+  populateTimeSavingsCalculator();
 }
 
 // ── Hauptlogik ─────────────────────────────────────────────────────────────────
