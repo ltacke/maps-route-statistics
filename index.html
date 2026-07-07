@@ -140,6 +140,55 @@
       </div>
       <div style="font-size:12px;color:#57606a;margin-top:8px" id="val-timestamp-return"></div>
     </div>
+
+    <!-- Heute vs. Durchschnitt -->
+    <div id="today-vs-avg" style="margin-top:24px;padding-top:24px;border-top:1px solid #e5e7eb"></div>
+  </div>
+
+  <!-- Empfehlungen: Beste Abfahrtszeit -->
+  <div class="card" id="card-recommendations" style="display:none">
+    <h2>💡 Empfehlungen: Beste Abfahrtszeit</h2>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px">
+      <div>
+        <h3 style="font-size:14px;font-weight:600;margin-bottom:12px;color:#3b82d4">→ Hinfahrt</h3>
+        <div id="recommendations-outbound"></div>
+      </div>
+      <div>
+        <h3 style="font-size:14px;font-weight:600;margin-bottom:12px;color:#16a34a">← Rückfahrt</h3>
+        <div id="recommendations-return"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Best/Worst Times -->
+  <div class="card" id="card-rankings" style="display:none">
+    <h2>⭐ Beste & Schlechteste Zeiten</h2>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px">
+      <div>
+        <h3 style="font-size:14px;font-weight:600;margin-bottom:12px;color:#3b82d4">→ Hinfahrt</h3>
+        <div id="ranking-outbound"></div>
+      </div>
+      <div>
+        <h3 style="font-size:14px;font-weight:600;margin-bottom:12px;color:#16a34a">← Rückfahrt</h3>
+        <div id="ranking-return"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Wochentag-Vergleich -->
+  <div class="card">
+    <h2>Wochentag-Vergleich</h2>
+    <div class="chart-wrap">
+      <canvas id="chart-weekday"></canvas>
+    </div>
+  </div>
+
+  <!-- Monatlicher Trend -->
+  <div class="card" id="card-monthly" style="display:none">
+    <h2>Monatlicher Trend</h2>
+    <div class="chart-wrap">
+      <canvas id="chart-monthly"></canvas>
+    </div>
   </div>
 
   <!-- Zeitreihenchart -->
@@ -152,6 +201,44 @@
     </div>
     <div class="chart-wrap">
       <canvas id="chart-timeseries"></canvas>
+    </div>
+  </div>
+
+  <!-- Zuverlässigkeit -->
+  <div class="card" id="card-reliability" style="display:none">
+    <h2>📊 Zuverlässigkeit & Planbarkeit</h2>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px">
+      <div>
+        <h3 style="font-size:14px;font-weight:600;margin-bottom:12px;color:#3b82d4">→ Hinfahrt</h3>
+        <div class="chart-wrap" style="height:200px">
+          <canvas id="chart-reliability-outbound"></canvas>
+        </div>
+      </div>
+      <div>
+        <h3 style="font-size:14px;font-weight:600;margin-bottom:12px;color:#16a34a">← Rückfahrt</h3>
+        <div class="chart-wrap" style="height:200px">
+          <canvas id="chart-reliability-return"></canvas>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Delay-Verteilung -->
+  <div class="card" id="card-delay-dist" style="display:none">
+    <h2>⏱️ Verzögerungs-Verteilung</h2>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px">
+      <div>
+        <h3 style="font-size:14px;font-weight:600;margin-bottom:12px;color:#3b82d4">→ Hinfahrt</h3>
+        <div class="chart-wrap" style="height:200px">
+          <canvas id="chart-delay-outbound"></canvas>
+        </div>
+      </div>
+      <div>
+        <h3 style="font-size:14px;font-weight:600;margin-bottom:12px;color:#16a34a">← Rückfahrt</h3>
+        <div class="chart-wrap" style="height:200px">
+          <canvas id="chart-delay-return"></canvas>
+        </div>
+      </div>
     </div>
   </div>
 
@@ -183,6 +270,10 @@ const WEEKDAY_DE = { Monday:"Mo", Tuesday:"Di", Wednesday:"Mi", Thursday:"Do", F
 const HOURS = Array.from({length: 17}, (_, i) => String(i + 5).padStart(2, "0")); // 05–21
 
 let timeseriesChart = null;
+let weekdayChart = null;
+let monthlyChart = null;
+let reliabilityCharts = { outbound: null, return: null };
+let delayCharts = { outbound: null, return: null };
 let routeMap = null;
 let allRows = [];
 let activeDays = 7;
@@ -191,6 +282,12 @@ let statsData = null;
 // ── Hilfsfunktionen ────────────────────────────────────────────────────────────
 
 function secToMin(s) { return Math.round(s / 60); }
+
+function stdDev(values) {
+  const avg = values.reduce((a, b) => a + b, 0) / values.length;
+  const variance = values.reduce((sum, val) => sum + Math.pow(val - avg, 2), 0) / values.length;
+  return Math.sqrt(variance);
+}
 
 function heatColor(value, minVal, maxVal) {
   if (value === null) return "#e5e7eb";
@@ -216,6 +313,115 @@ function heatColor(value, minVal, maxVal) {
 function formatTs(isoStr) {
   const d = new Date(isoStr);
   return d.toLocaleString("de-DE", { dateStyle: "short", timeStyle: "short" });
+}
+
+// ── Analysen ───────────────────────────────────────────────────────────────────
+
+function analyzeBestTimes(routeData) {
+  // Findet die beste Zeit pro Wochentag
+  const recommendations = {};
+  for (const day of WEEKDAY_ORDER) {
+    if (!routeData.by_weekday_hour[day]) continue;
+    let bestHour = null;
+    let bestTime = Infinity;
+    for (const [hour, data] of Object.entries(routeData.by_weekday_hour[day])) {
+      if (data.avg < bestTime) {
+        bestTime = data.avg;
+        bestHour = hour;
+      }
+    }
+    if (bestHour) {
+      recommendations[day] = { hour: bestHour, duration: bestTime, count: routeData.by_weekday_hour[day][bestHour].count };
+    }
+  }
+  return recommendations;
+}
+
+function analyzeWorstTimes(routeData) {
+  const worst = {};
+  for (const day of WEEKDAY_ORDER) {
+    if (!routeData.by_weekday_hour[day]) continue;
+    let worstHour = null;
+    let worstTime = -Infinity;
+    for (const [hour, data] of Object.entries(routeData.by_weekday_hour[day])) {
+      if (data.avg > worstTime) {
+        worstTime = data.avg;
+        worstHour = hour;
+      }
+    }
+    if (worstHour) {
+      worst[day] = { hour: worstHour, duration: worstTime };
+    }
+  }
+  return worst;
+}
+
+function calculateReliability(rows, routeId) {
+  // Berechnet Standardabweichung pro Stunde
+  const byHour = {};
+  rows.filter(r => r.route_id === routeId).forEach(r => {
+    const hour = new Date(r.timestamp_utc).getHours();
+    if (!byHour[hour]) byHour[hour] = [];
+    byHour[hour].push(parseInt(r.duration_seconds));
+  });
+
+  const reliability = {};
+  for (const [hour, values] of Object.entries(byHour)) {
+    if (values.length >= 2) {
+      reliability[hour] = {
+        stdDev: stdDev(values),
+        count: values.length,
+        avg: values.reduce((a, b) => a + b, 0) / values.length
+      };
+    }
+  }
+  return reliability;
+}
+
+function analyzeDelayDistribution(rows, routeId) {
+  const delays = rows
+    .filter(r => r.route_id === routeId)
+    .map(r => {
+      const dur = parseInt(r.duration_seconds);
+      const static_dur = parseInt(r.static_duration_seconds);
+      return secToMin(dur - static_dur);
+    });
+
+  // Buckets: <0, 0-2, 3-5, 6-10, 11-15, 16+
+  const buckets = { '<0': 0, '0-2': 0, '3-5': 0, '6-10': 0, '11-15': 0, '16+': 0 };
+  delays.forEach(d => {
+    if (d < 0) buckets['<0']++;
+    else if (d <= 2) buckets['0-2']++;
+    else if (d <= 5) buckets['3-5']++;
+    else if (d <= 10) buckets['6-10']++;
+    else if (d <= 15) buckets['11-15']++;
+    else buckets['16+']++;
+  });
+
+  return buckets;
+}
+
+function compareTodayVsAverage(latest, byWeekdayHour) {
+  if (!latest) return null;
+  const ts = new Date(latest.timestamp_utc);
+  const day = ts.toLocaleDateString('en-US', { weekday: 'long' });
+  const hour = String(ts.getHours()).padStart(2, '0');
+
+  const avgData = byWeekdayHour[day]?.[hour];
+  if (!avgData) return null;
+
+  const currentDur = latest.duration_seconds;
+  const avgDur = avgData.avg;
+  const diff = currentDur - avgDur;
+  const diffPercent = Math.round((diff / avgDur) * 100);
+
+  return {
+    current: secToMin(currentDur),
+    average: secToMin(avgDur),
+    diff: secToMin(Math.abs(diff)),
+    diffPercent: Math.abs(diffPercent),
+    isFaster: diff < 0
+  };
 }
 
 // ── Zeitreihenchart ────────────────────────────────────────────────────────────
@@ -306,6 +512,312 @@ function renderHeatmap(byWeekdayHour, containerId) {
   }
   html += "</tbody></table>";
   document.getElementById(containerId).innerHTML = html;
+}
+
+// ── Empfehlungs-Widget ─────────────────────────────────────────────────────────
+
+function renderRecommendations(routeId) {
+  const routeData = statsData.routes[routeId];
+  if (!routeData) return;
+
+  const best = analyzeBestTimes(routeData);
+  let html = '<div style="font-size:13px">';
+  for (const day of WEEKDAY_ORDER) {
+    if (best[day]) {
+      const savings = ""; // TODO: könnte man gegen worst time berechnen
+      html += `<div style="padding:8px 0;border-bottom:1px solid #e5e7eb">
+        <strong>${WEEKDAY_DE[day]}</strong> um <strong>${best[day].hour}:00</strong> Uhr
+        → <span style="color:#16a34a">${secToMin(best[day].duration)} Min</span>
+        <span style="font-size:11px;color:#57606a">(n=${best[day].count})</span>
+      </div>`;
+    }
+  }
+  html += '</div>';
+  document.getElementById(`recommendations-${routeId}`).innerHTML = html;
+}
+
+// ── Best/Worst Ranking ─────────────────────────────────────────────────────────
+
+function renderRanking(routeId) {
+  const routeData = statsData.routes[routeId];
+  if (!routeData) return;
+
+  // Alle Zeitfenster sammeln
+  const times = [];
+  for (const day of WEEKDAY_ORDER) {
+    if (!routeData.by_weekday_hour[day]) continue;
+    for (const [hour, data] of Object.entries(routeData.by_weekday_hour[day])) {
+      times.push({ day, hour, duration: data.avg, count: data.count });
+    }
+  }
+
+  times.sort((a, b) => a.duration - b.duration);
+  const best = times.slice(0, 5);
+  const worst = times.slice(-5).reverse();
+
+  let html = '<div style="font-size:13px">';
+  html += '<h4 style="font-size:12px;font-weight:600;color:#16a34a;margin-bottom:8px">✓ Top 5 Beste</h4>';
+  best.forEach((t, i) => {
+    html += `<div style="padding:4px 0;font-size:12px">
+      ${i+1}. ${WEEKDAY_DE[t.day]} ${t.hour}:00 → <strong>${secToMin(t.duration)} min</strong>
+    </div>`;
+  });
+
+  html += '<h4 style="font-size:12px;font-weight:600;color:#dc2626;margin:16px 0 8px">⚠ Top 5 Schlechteste</h4>';
+  worst.forEach((t, i) => {
+    html += `<div style="padding:4px 0;font-size:12px">
+      ${i+1}. ${WEEKDAY_DE[t.day]} ${t.hour}:00 → <strong>${secToMin(t.duration)} min</strong>
+    </div>`;
+  });
+  html += '</div>';
+
+  document.getElementById(`ranking-${routeId}`).innerHTML = html;
+}
+
+// ── Wochentag-Vergleich Chart ──────────────────────────────────────────────────
+
+function renderWeekdayChart() {
+  const ctx = document.getElementById("chart-weekday").getContext("2d");
+
+  // Aggregiere nach Wochentag
+  const byWeekday = { outbound: {}, return: {} };
+  ['outbound', 'return'].forEach(routeId => {
+    WEEKDAY_ORDER.forEach(day => {
+      const dayData = statsData.routes[routeId]?.by_weekday_hour[day];
+      if (!dayData) return;
+
+      const allValues = Object.values(dayData).flatMap(h => Array(h.count).fill(h.avg));
+      if (allValues.length > 0) {
+        byWeekday[routeId][day] = {
+          avg: allValues.reduce((a, b) => a + b, 0) / allValues.length,
+          min: Math.min(...allValues),
+          max: Math.max(...allValues)
+        };
+      }
+    });
+  });
+
+  const labels = WEEKDAY_ORDER.map(d => WEEKDAY_DE[d]);
+  const outboundAvg = WEEKDAY_ORDER.map(d => byWeekday.outbound[d] ? secToMin(byWeekday.outbound[d].avg) : null);
+  const returnAvg = WEEKDAY_ORDER.map(d => byWeekday.return[d] ? secToMin(byWeekday.return[d].avg) : null);
+
+  if (weekdayChart) weekdayChart.destroy();
+  weekdayChart = new Chart(ctx, {
+    type: "bar",
+    data: {
+      labels,
+      datasets: [
+        {
+          label: "Hinfahrt",
+          data: outboundAvg,
+          backgroundColor: "rgba(59,130,212,0.7)",
+          borderColor: "#3b82d4",
+          borderWidth: 1
+        },
+        {
+          label: "Rückfahrt",
+          data: returnAvg,
+          backgroundColor: "rgba(22,163,74,0.7)",
+          borderColor: "#16a34a",
+          borderWidth: 1
+        }
+      ]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: { legend: { position: "bottom" } },
+      scales: {
+        y: { title: { display: true, text: "Minuten" }, beginAtZero: false }
+      }
+    }
+  });
+}
+
+// ── Monatlicher Trend ──────────────────────────────────────────────────────────
+
+function renderMonthlyChart() {
+  // Gruppiere nach Monat
+  const byMonth = { outbound: {}, return: {} };
+  ['outbound', 'return'].forEach(routeId => {
+    allRows.filter(r => r.route_id === routeId).forEach(r => {
+      const month = r.timestamp_utc.substring(0, 7); // YYYY-MM
+      if (!byMonth[routeId][month]) byMonth[routeId][month] = [];
+      byMonth[routeId][month].push(parseInt(r.duration_seconds));
+    });
+  });
+
+  // Nur wenn mindestens 2 Monate
+  const months = [...new Set([...Object.keys(byMonth.outbound), ...Object.keys(byMonth.return)])].sort();
+  if (months.length < 2) return;
+
+  const labels = months.map(m => {
+    const [y, mo] = m.split('-');
+    return `${mo}/${y.slice(2)}`;
+  });
+
+  const outboundAvg = months.map(m => byMonth.outbound[m] ? secToMin(byMonth.outbound[m].reduce((a,b)=>a+b,0) / byMonth.outbound[m].length) : null);
+  const returnAvg = months.map(m => byMonth.return[m] ? secToMin(byMonth.return[m].reduce((a,b)=>a+b,0) / byMonth.return[m].length) : null);
+
+  const ctx = document.getElementById("chart-monthly").getContext("2d");
+  if (monthlyChart) monthlyChart.destroy();
+  monthlyChart = new Chart(ctx, {
+    type: "line",
+    data: {
+      labels,
+      datasets: [
+        {
+          label: "Hinfahrt",
+          data: outboundAvg,
+          borderColor: "#3b82d4",
+          backgroundColor: "rgba(59,130,212,0.1)",
+          borderWidth: 2,
+          tension: 0.3
+        },
+        {
+          label: "Rückfahrt",
+          data: returnAvg,
+          borderColor: "#16a34a",
+          backgroundColor: "rgba(22,163,74,0.1)",
+          borderWidth: 2,
+          tension: 0.3
+        }
+      ]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: { legend: { position: "bottom" } },
+      scales: {
+        y: { title: { display: true, text: "Ø Minuten" }, beginAtZero: false }
+      }
+    }
+  });
+
+  document.getElementById("card-monthly").style.display = "";
+}
+
+// ── Zuverlässigkeits-Chart ─────────────────────────────────────────────────────
+
+function renderReliabilityChart(routeId) {
+  const reliability = calculateReliability(allRows, routeId);
+  const hours = Object.keys(reliability).sort((a, b) => parseInt(a) - parseInt(b));
+  const labels = hours.map(h => `${String(h).padStart(2,'0')}:00`);
+  const stdDevs = hours.map(h => secToMin(reliability[h].stdDev));
+
+  const ctx = document.getElementById(`chart-reliability-${routeId}`).getContext("2d");
+  if (reliabilityCharts[routeId]) reliabilityCharts[routeId].destroy();
+  reliabilityCharts[routeId] = new Chart(ctx, {
+    type: "bar",
+    data: {
+      labels,
+      datasets: [{
+        label: "Standardabweichung (Min)",
+        data: stdDevs,
+        backgroundColor: stdDevs.map(v => v < 3 ? "rgba(22,163,74,0.7)" : v < 6 ? "rgba(234,179,8,0.7)" : "rgba(220,38,38,0.7)"),
+        borderWidth: 0
+      }]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          callbacks: {
+            label: (ctx) => {
+              const val = ctx.parsed.y;
+              const quality = val < 3 ? "sehr planbar" : val < 6 ? "planbar" : "unzuverlässig";
+              return `±${val} Min (${quality})`;
+            }
+          }
+        }
+      },
+      scales: {
+        y: { title: { display: true, text: "Standardabw. (Min)" }, beginAtZero: true }
+      }
+    }
+  });
+}
+
+// ── Delay-Verteilung Histogram ─────────────────────────────────────────────────
+
+function renderDelayChart(routeId) {
+  const dist = analyzeDelayDistribution(allRows, routeId);
+  const labels = Object.keys(dist);
+  const data = Object.values(dist);
+  const total = data.reduce((a, b) => a + b, 0);
+  const percentages = data.map(v => Math.round((v / total) * 100));
+
+  const ctx = document.getElementById(`chart-delay-${routeId}`).getContext("2d");
+  if (delayCharts[routeId]) delayCharts[routeId].destroy();
+  delayCharts[routeId] = new Chart(ctx, {
+    type: "bar",
+    data: {
+      labels,
+      datasets: [{
+        label: "Anzahl Fahrten",
+        data,
+        backgroundColor: labels.map(l => l === '<0' || l === '0-2' ? "rgba(22,163,74,0.7)" : l === '3-5' ? "rgba(234,179,8,0.7)" : "rgba(220,38,38,0.7)"),
+        borderWidth: 0
+      }]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          callbacks: {
+            label: (ctx) => {
+              const idx = ctx.dataIndex;
+              return `${data[idx]} Fahrten (${percentages[idx]}%)`;
+            }
+          }
+        }
+      },
+      scales: {
+        y: { title: { display: true, text: "Anzahl" }, beginAtZero: true }
+      }
+    }
+  });
+}
+
+// ── Heute vs. Durchschnitt ─────────────────────────────────────────────────────
+
+function renderTodayVsAverage() {
+  const comparisons = {
+    outbound: compareTodayVsAverage(statsData.routes.outbound?.latest, statsData.routes.outbound?.by_weekday_hour),
+    return: compareTodayVsAverage(statsData.routes.return?.latest, statsData.routes.return?.by_weekday_hour)
+  };
+
+  let html = '<h3 style="font-size:14px;font-weight:600;margin-bottom:12px">Heute vs. Durchschnitt</h3>';
+  html += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;font-size:13px">';
+
+  ['outbound', 'return'].forEach(routeId => {
+    const comp = comparisons[routeId];
+    const label = routeId === 'outbound' ? '→ Hinfahrt' : '← Rückfahrt';
+    const color = routeId === 'outbound' ? '#3b82d4' : '#16a34a';
+
+    if (comp) {
+      const icon = comp.isFaster ? '⚡' : '🐌';
+      const text = comp.isFaster ? 'schneller' : 'langsamer';
+      const diffColor = comp.isFaster ? '#16a34a' : '#d97706';
+      html += `<div>
+        <strong style="color:${color}">${label}</strong><br>
+        Heute: <strong>${comp.current} Min</strong><br>
+        Durchschnitt: ${comp.average} Min<br>
+        <span style="color:${diffColor}">
+          ${icon} ${comp.diff} Min ${text} (${comp.diffPercent}%)
+        </span>
+      </div>`;
+    } else {
+      html += `<div><strong style="color:${color}">${label}</strong><br>Keine Vergleichsdaten</div>`;
+    }
+  });
+
+  html += '</div>';
+  document.getElementById("today-vs-avg").innerHTML = html;
 }
 
 // ── Karte ──────────────────────────────────────────────────────────────────────
@@ -402,6 +914,41 @@ function displayAllRoutes() {
   // Timeseries with both routes
   if (allRows.length > 0) {
     renderTimeseries(allRows, activeDays);
+  }
+
+  // Heute vs. Durchschnitt
+  renderTodayVsAverage();
+
+  // Empfehlungen
+  renderRecommendations("outbound");
+  renderRecommendations("return");
+  document.getElementById("card-recommendations").style.display = "";
+
+  // Best/Worst Rankings
+  renderRanking("outbound");
+  renderRanking("return");
+  document.getElementById("card-rankings").style.display = "";
+
+  // Wochentag-Vergleich
+  renderWeekdayChart();
+
+  // Monatlicher Trend (nur wenn genug Daten)
+  if (allRows.length > 0) {
+    renderMonthlyChart();
+  }
+
+  // Zuverlässigkeit
+  if (allRows.length >= 10) {
+    renderReliabilityChart("outbound");
+    renderReliabilityChart("return");
+    document.getElementById("card-reliability").style.display = "";
+  }
+
+  // Delay-Verteilung
+  if (allRows.length >= 5) {
+    renderDelayChart("outbound");
+    renderDelayChart("return");
+    document.getElementById("card-delay-dist").style.display = "";
   }
 }
 
