@@ -318,7 +318,8 @@ async function init() {
       return;
     }
 
-    const routeId = routeKeys[0];
+    // Prefer outbound for display, fallback to first available
+    const routeId = stats.routes["outbound"] ? "outbound" : routeKeys[0];
     const routeData = stats.routes[routeId];
 
     // Label
@@ -364,9 +365,12 @@ async function init() {
       if (!csvRes.ok) throw new Error("route_history.csv nicht gefunden");
       const csvText = await csvRes.text();
       const parsed = Papa.parse(csvText, { header: true, skipEmptyLines: true });
+      // Show only the selected route (outbound or return) in the timeseries
       allRows = parsed.data.filter(r => r.route_id === routeId);
       allRows.sort((a, b) => a.timestamp_utc.localeCompare(b.timestamp_utc));
-      renderTimeseries(allRows, activeDays);
+      if (allRows.length > 0) {
+        renderTimeseries(allRows, activeDays);
+      }
     } catch (csvErr) {
       // Zeitreihenchart-Fehler: Meldung in der Chart-Karte anzeigen, Rest bleibt sichtbar
       const chartWrap = document.querySelector(".chart-wrap");
