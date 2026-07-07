@@ -164,11 +164,20 @@ def main() -> None:
     dest_lat = float(os.environ.get("DEST_LAT") or "48.1351")
     dest_lng = float(os.environ.get("DEST_LNG") or "11.5820")
 
-    # Beide Richtungen: outbound (A→B) und return (B→A)
-    directions = [
-        ("outbound", origin_lat, origin_lng, dest_lat, dest_lng),
-        ("return",   dest_lat, dest_lng, origin_lat, origin_lng),
-    ]
+    # Zeitabhängige Richtungsauswahl:
+    # Morgens (06-11 Uhr): nur outbound (zur Arbeit)
+    # Abends (12-19 Uhr): nur return (nach Hause)
+    now_local = now_utc.astimezone(ZoneInfo(timezone))
+    hour_local = now_local.hour
+
+    if hour_local < 12:
+        # Morgens: nur Hinfahrt zur Arbeit
+        directions = [("outbound", origin_lat, origin_lng, dest_lat, dest_lng)]
+        print(f"Morgens {hour_local}:00 Uhr → fetche nur outbound (zur Arbeit)")
+    else:
+        # Abends: nur Rückfahrt nach Hause
+        directions = [("return", dest_lat, dest_lng, origin_lat, origin_lng)]
+        print(f"Abends {hour_local}:00 Uhr → fetche nur return (nach Hause)")
 
     rows = []
     for route_id, o_lat, o_lng, d_lat, d_lng in directions:

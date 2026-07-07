@@ -94,17 +94,23 @@ The `is_within_window()` function enforces:
 
 **Why**: Prevents accidental API costs from manual workflow runs outside intended schedule.
 
-### Bidirectional Tracking
+### Time-Based Direction Selection
 
-Both directions are fetched in a single run:
+**Smart routing logic**: Only fetches the relevant direction based on local time:
+- **Morgens (06-11 Uhr)**: Nur `outbound` (zur Arbeit)
+- **Abends (12-19 Uhr)**: Nur `return` (nach Hause)
+
 ```python
-directions = [
-    ("outbound", origin_lat, origin_lng, dest_lat, dest_lng),
-    ("return",   dest_lat, dest_lng, origin_lat, origin_lng),
-]
+if hour_local < 12:
+    directions = [("outbound", origin_lat, origin_lng, dest_lat, dest_lng)]
+else:
+    directions = [("return", dest_lat, dest_lng, origin_lat, origin_lng)]
 ```
 
-This captures asymmetric traffic (e.g., morning rush hour is outbound-heavy).
+**Why**: Mornings are for commuting TO work, evenings are for commuting HOME. This:
+- Saves 50% API calls
+- Makes logical sense (no need to measure return route at 7am)
+- Creates cleaner, more relevant data
 
 ### Stats Rebuild Trigger
 
