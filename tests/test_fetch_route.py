@@ -19,10 +19,10 @@ def _local(year, month, day, hour, minute=0):
     return dt.datetime(year, month, day, hour, minute, tzinfo=_TZ).astimezone(dt.timezone.utc)
 
 
-# ── Zeitfenster-Guard: Morgens 06–09, 15-Min-Takt ────────────────────────────
+# ── Zeitfenster-Guard: Morgens 06–08:59 ──────────────────────────────────────
 
 def test_morning_slot_on_time():
-    # Mo 06:00 → aktiv (15-Min-Slot)
+    # Mo 06:00 → aktiv
     assert is_within_window(_local(2025, 1, 13, 6, 0)) is True
 
 def test_morning_slot_15():
@@ -34,8 +34,8 @@ def test_morning_slot_30():
     assert is_within_window(_local(2025, 1, 13, 8, 30)) is True
 
 def test_morning_slot_off_minute():
-    # Mo 07:01 → nicht aktiv (kein 15-Min-Slot)
-    assert is_within_window(_local(2025, 1, 13, 7, 1)) is False
+    # Mo 07:01 → aktiv (any minute within hour range is accepted)
+    assert is_within_window(_local(2025, 1, 13, 7, 1)) is True
 
 def test_morning_end_boundary():
     # Mo 09:00 → nicht aktiv (Endpunkt exklusiv: hour < 9)
@@ -46,10 +46,10 @@ def test_morning_before_start():
     assert is_within_window(_local(2025, 1, 13, 5, 45)) is False
 
 
-# ── Zeitfenster-Guard: Abends 16–19, 30-Min-Takt ─────────────────────────────
+# ── Zeitfenster-Guard: Abends 16–18:59 ────────────────────────────────────────
 
 def test_evening_slot_on_time():
-    # Mo 16:00 → aktiv (30-Min-Slot)
+    # Mo 16:00 → aktiv
     assert is_within_window(_local(2025, 1, 13, 16, 0)) is True
 
 def test_evening_slot_half():
@@ -57,8 +57,8 @@ def test_evening_slot_half():
     assert is_within_window(_local(2025, 1, 13, 17, 30)) is True
 
 def test_evening_slot_off_minute():
-    # Mo 16:15 → nicht aktiv (kein 30-Min-Slot)
-    assert is_within_window(_local(2025, 1, 13, 16, 15)) is False
+    # Mo 16:15 → aktiv (any minute within hour range is accepted)
+    assert is_within_window(_local(2025, 1, 13, 16, 15)) is True
 
 def test_evening_end_boundary():
     # Mo 19:00 → nicht aktiv (Endpunkt exklusiv: hour < 19)

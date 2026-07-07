@@ -40,22 +40,24 @@ def is_within_window(now_utc: dt.datetime, timezone: str = "Europe/Berlin") -> b
     """Gibt True zurück wenn now_utc in einem aktiven Abfrageintervall liegt.
 
     Aktive Zeitfenster (lokale Zeit, Werktage Mo–Fr):
-      - Morgens: 06:00–09:00 Uhr, 15-Minuten-Takt  → jede Minute in Slot 0,15,30,45
-      - Abends:  16:00–19:00 Uhr, 30-Minuten-Takt  → jede Minute in Slot 0,30
+      - Morgens: 06:00–08:59 Uhr
+      - Abends:  16:00–18:59 Uhr
+
+    Cron schedule controls the exact timing; this guard just prevents
+    accidental runs far outside intended hours (e.g., manual triggers at night).
     """
     now_local = now_utc.astimezone(ZoneInfo(timezone))
     if now_local.weekday() >= 5:  # Samstag=5, Sonntag=6
         return False
 
     hour = now_local.hour
-    minute = now_local.minute
 
-    # Morgens 06–08 Uhr (09:00 ist Endpunkt, also Stunden 6,7,8), 15-Min-Takt
-    if 6 <= hour < 9 and minute % 15 == 0:
+    # Morgens 06–08 Uhr (09:00 ist Endpunkt, also Stunden 6,7,8)
+    if 6 <= hour < 9:
         return True
 
-    # Abends 16–18 Uhr (19:00 ist Endpunkt, also Stunden 16,17,18), 30-Min-Takt
-    if 16 <= hour < 19 and minute % 30 == 0:
+    # Abends 16–18 Uhr (19:00 ist Endpunkt, also Stunden 16,17,18)
+    if 16 <= hour < 19:
         return True
 
     return False
