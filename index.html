@@ -574,8 +574,15 @@ function renderHeatmap(byWeekdayHour, containerId, routeId) {
   const allVals = [];
   for (const d of days) {
     for (const h of relevantHours) {
-      const cell = byWeekdayHour[d]?.[h];
-      if (cell) allVals.push(cell.avg);
+      const hourData = byWeekdayHour[d]?.[h];
+      if (hourData) {
+        // Aggregate minute-level data to hour level
+        const minuteValues = Object.values(hourData).map(m => m.avg);
+        if (minuteValues.length > 0) {
+          const hourAvg = minuteValues.reduce((sum, v) => sum + v, 0) / minuteValues.length;
+          allVals.push(hourAvg);
+        }
+      }
     }
   }
 
@@ -594,11 +601,19 @@ function renderHeatmap(byWeekdayHour, containerId, routeId) {
   for (const h of relevantHours) {
     html += `<tr><td><strong>${h}:00</strong></td>`;
     for (const d of days) {
-      const cell = byWeekdayHour[d]?.[h];
-      if (cell) {
-        const color = heatColor(cell.avg, minVal, maxVal);
-        const min = secToMin(cell.avg);
-        html += `<td style="background:${color}" title="${min} min (n=${cell.count})">${min}</td>`;
+      const hourData = byWeekdayHour[d]?.[h];
+      if (hourData) {
+        // Aggregate minute-level data to hour level
+        const minuteValues = Object.values(hourData).map(m => m.avg);
+        const totalCount = Object.values(hourData).reduce((sum, m) => sum + m.count, 0);
+        if (minuteValues.length > 0) {
+          const hourAvg = minuteValues.reduce((sum, v) => sum + v, 0) / minuteValues.length;
+          const color = heatColor(hourAvg, minVal, maxVal);
+          const min = secToMin(hourAvg);
+          html += `<td style="background:${color}" title="${min} min (n=${totalCount})">${min}</td>`;
+        } else {
+          html += `<td style="background:#e5e7eb;color:#9ca3af">—</td>`;
+        }
       } else {
         html += `<td style="background:#e5e7eb;color:#9ca3af">—</td>`;
       }
