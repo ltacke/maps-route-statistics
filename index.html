@@ -346,6 +346,27 @@ let allRows = [];
 let activeDays = 7;
 let statsData = null;
 
+// ── Format Detection ───────────────────────────────────────────────────────────
+
+function isNewFormat(statsData) {
+  if (!statsData.routes || Object.keys(statsData.routes).length === 0) {
+    return true;  // Empty data is valid new format
+  }
+
+  const firstRoute = Object.values(statsData.routes)[0];
+  if (!firstRoute.by_weekday_hour) return true;
+
+  const firstDay = Object.values(firstRoute.by_weekday_hour)[0];
+  if (!firstDay) return true;
+
+  const firstHour = Object.values(firstDay)[0];
+  if (!firstHour) return true;
+
+  // New format: firstHour is object with minute keys (no 'avg' property)
+  // Old format: firstHour has {avg, min, max, count}
+  return typeof firstHour === 'object' && !('avg' in firstHour);
+}
+
 // ── Hilfsfunktionen ────────────────────────────────────────────────────────────
 
 function secToMin(s) { return Math.round(s / 60); }
@@ -1177,6 +1198,15 @@ async function init() {
     const statsRes = await fetch("data/stats.json");
     if (!statsRes.ok) throw new Error("stats.json nicht gefunden");
     statsData = await statsRes.json();
+
+    // Format check
+    if (!isNewFormat(statsData)) {
+      document.getElementById("loading").style.display = "none";
+      document.getElementById("error").textContent =
+        "Alte Datenstruktur erkannt. Bitte führe aus: python scripts/build_stats.py";
+      document.getElementById("error").style.display = "block";
+      return;
+    }
 
     const routeKeys = Object.keys(statsData.routes || {});
     if (routeKeys.length === 0) {
