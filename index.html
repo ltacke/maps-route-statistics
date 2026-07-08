@@ -921,7 +921,10 @@ function calculateSavings(routeId) {
     return;
   }
 
-  const selectedTime = routeData.by_weekday_hour[day][hour].avg;
+  // Aggregate all minute buckets within this hour to get hour-level average
+  const hourData = routeData.by_weekday_hour[day][hour];
+  const minuteValues = Object.values(hourData).map(m => m.avg);
+  const selectedTime = minuteValues.reduce((sum, v) => sum + v, 0) / minuteValues.length;
   const best = analyzeBestTimes(routeData, routeId);
   const bestForDay = best[day];
 
