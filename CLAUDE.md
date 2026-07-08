@@ -39,10 +39,11 @@ python -m http.server 8080
 1. **External Scheduling via cron-job.org**
    - Triggers GitHub Actions workflow via `workflow_dispatch` API
    - Schedule: weekdays only (Mo-Fr)
-     - Morning: 06:00-09:00 Berlin time, 15-minute intervals
-     - Evening: 16:00-19:00 Berlin time, 30-minute intervals
+     - Morning: 06:00-09:55 Berlin time, 5-minute intervals (48 calls/day)
+     - Evening: 16:00-19:55 Berlin time, 5-minute intervals (48 calls/day)
    - Timezone-aware: `Europe/Berlin` (handles DST automatically)
    - Can also be triggered manually via workflow_dispatch
+   - **Monthly usage**: ~2,112 calls/month (21% of Google Routes API free tier)
 
 2. **fetch_route.py** — API fetch + CSV append + stats rebuild
    - `is_within_window()`: Guards against off-schedule runs (e.g., manual triggers)
@@ -152,5 +153,6 @@ All charts are conditionally rendered based on data availability and use consist
 ## Cost Management
 
 - Free tier: 10,000 Google Routes API calls/month
-- Expected usage: ~365 calls/month (2 directions × ~182 runs)
-- Budget alert recommended at €5/month
+- Current usage: ~2,112 calls/month (5-minute intervals, weekdays only)
+- Usage rate: 21% of free tier
+- Budget alert recommended at €5/month (triggers at 10,001 calls)
