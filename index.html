@@ -518,16 +518,28 @@ function compareTodayVsAverage(latest, byWeekdayHour) {
   const ts = new Date(latest.timestamp_utc);
   const day = ts.toLocaleDateString('en-US', { weekday: 'long' });
   const hour = String(ts.getHours()).padStart(2, '0');
-  const minute = String(ts.getMinutes()).padStart(2, '0');
 
-  const avgData = byWeekdayHour[day]?.[hour]?.[minute];
-  if (!avgData) return null;
+  // Aggregate across all minutes in this hour (not just current minute)
+  const hourData = byWeekdayHour[day]?.[hour];
+  if (!hourData) return null;
+
+  // Collect all minute buckets for this hour
+  let totalDuration = 0;
+  let totalCount = 0;
+  for (const [minute, data] of Object.entries(hourData)) {
+    totalDuration += data.avg * data.count;
+    totalCount += data.count;
+  }
+
+  if (totalCount === 0) return null;
+
+  const avgForHour = totalDuration / totalCount;
 
   return {
     current: latest.duration_seconds,
-    average: avgData.avg,
-    diff: latest.duration_seconds - avgData.avg,
-    count: avgData.count,
+    average: avgForHour,
+    diff: latest.duration_seconds - avgForHour,
+    count: totalCount,
   };
 }
 
@@ -1026,15 +1038,24 @@ function renderTodayVsAverage() {
     const color = routeId === 'outbound' ? '#3b82d4' : '#16a34a';
 
     if (comp) {
-      const icon = comp.isFaster ? '⚡' : '🐌';
-      const text = comp.isFaster ? 'schneller' : 'langsamer';
-      const diffColor = comp.isFaster ? '#16a34a' : '#d97706';
+      // Convert seconds to minutes
+      const currentMin = secToMin(comp.current);
+      const averageMin = secToMin(comp.average);
+      const diffMin = secToMin(Math.abs(comp.diff));
+
+      // Calculate isFaster and diffPercent locally
+      const isFaster = comp.diff < 0;
+      const diffPercent = ((comp.diff / comp.average) * 100).toFixed(1);
+
+      const icon = isFaster ? '⚡' : '🐌';
+      const text = isFaster ? 'schneller' : 'langsamer';
+      const diffColor = isFaster ? '#16a34a' : '#d97706';
       html += `<div>
         <strong style="color:${color}">${label}</strong><br>
-        Heute: <strong>${comp.current} Min</strong><br>
-        Durchschnitt: ${comp.average} Min<br>
+        Heute: <strong>${currentMin} Min</strong><br>
+        Durchschnitt: ${averageMin} Min<br>
         <span style="color:${diffColor}">
-          ${icon} ${comp.diff} Min ${text} (${comp.diffPercent}%)
+          ${icon} ${diffMin} Min ${text} (${diffPercent}%)
         </span>
       </div>`;
     } else {
