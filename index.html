@@ -563,64 +563,65 @@ function renderTimeseries(rows, days) {
 
 // ── Heatmap ────────────────────────────────────────────────────────────────────
 
-function renderHeatmap(byWeekdayHour, containerId, routeId) {
-  const days = WEEKDAY_ORDER.filter(d => byWeekdayHour[d]);
-  if (days.length === 0) return;
-
-  // Nur relevante Stunden für diese Richtung
-  const relevantHours = HOURS.filter(h => isRelevantHour(h, routeId));
-
-  // Alle Werte für Farbskala sammeln (nur relevante Stunden)
-  const allVals = [];
-  for (const d of days) {
-    for (const h of relevantHours) {
-      const hourData = byWeekdayHour[d]?.[h];
-      if (hourData) {
-        // Aggregate minute-level data to hour level
-        const minuteValues = Object.values(hourData).map(m => m.avg);
-        if (minuteValues.length > 0) {
-          const hourAvg = minuteValues.reduce((sum, v) => sum + v, 0) / minuteValues.length;
-          allVals.push(hourAvg);
-        }
+function renderSparseHeatmap(byWeekdayHour, containerId, routeId) {
+  // Collect all time-slots with data (only relevant hours for this route)
+  const timeSlots = new Set();
+  for (const day of WEEKDAY_ORDER) {
+    if (!byWeekdayHour[day]) continue;
+    for (const [hour, minutes] of Object.entries(byWeekdayHour[day])) {
+      // Only include relevant hours for this route
+      if (!isRelevantHour(hour, routeId)) continue;
+      for (const minute of Object.keys(minutes)) {
+        timeSlots.add(`${hour}:${minute}`);
       }
     }
   }
 
-  if (allVals.length === 0) {
-    document.getElementById(containerId).innerHTML = '<p style="color:#57606a;font-size:13px">Noch keine Daten für relevante Zeitfenster.</p>';
+  const sortedSlots = Array.from(timeSlots).sort();
+
+  if (sortedSlots.length === 0) {
+    document.getElementById(containerId).innerHTML = '<p style="color:#57606a;font-size:13px">Noch keine Aggregationsdaten vorhanden.</p>';
     return;
   }
 
-  const minVal = Math.min(...allVals);
-  const maxVal = Math.max(...allVals);
-
-  let html = '<table class="heatmap"><thead><tr><th>Uhr</th>';
-  for (const d of days) html += `<th>${WEEKDAY_DE[d]}</th>`;
-  html += "</tr></thead><tbody>";
-
-  for (const h of relevantHours) {
-    html += `<tr><td><strong>${h}:00</strong></td>`;
-    for (const d of days) {
-      const hourData = byWeekdayHour[d]?.[h];
-      if (hourData) {
-        // Aggregate minute-level data to hour level
-        const minuteValues = Object.values(hourData).map(m => m.avg);
-        const totalCount = Object.values(hourData).reduce((sum, m) => sum + m.count, 0);
-        if (minuteValues.length > 0) {
-          const hourAvg = minuteValues.reduce((sum, v) => sum + v, 0) / minuteValues.length;
-          const color = heatColor(hourAvg, minVal, maxVal);
-          const min = secToMin(hourAvg);
-          html += `<td style="background:${color}" title="${min} min (n=${totalCount})">${min}</td>`;
-        } else {
-          html += `<td style="background:#e5e7eb;color:#9ca3af">—</td>`;
-        }
-      } else {
-        html += `<td style="background:#e5e7eb;color:#9ca3af">—</td>`;
+  // Find min/max for color scaling
+  let minVal = Infinity, maxVal = -Infinity;
+  for (const day of WEEKDAY_ORDER) {
+    if (!byWeekdayHour[day]) continue;
+    for (const [hour, minutes] of Object.entries(byWeekdayHour[day])) {
+      if (!isRelevantHour(hour, routeId)) continue;
+      for (const data of Object.values(minutes)) {
+        if (data.avg < minVal) minVal = data.avg;
+        if (data.avg > maxVal) maxVal = data.avg;
       }
     }
-    html += "</tr>";
   }
-  html += "</tbody></table>";
+
+  // Build table: rows = weekdays, columns = sparse time-slots
+  let html = '<table class="heatmap"><thead><tr><th>Tag</th>';
+  sortedSlots.forEach(slot => {
+    html += `<th>${slot}</th>`;
+  });
+  html += '</tr></thead><tbody>';
+
+  for (const day of WEEKDAY_ORDER) {
+    html += `<tr><th>${WEEKDAY_DE[day]}</th>`;
+    for (const slot of sortedSlots) {
+      const [hour, minute] = slot.split(':');
+      const data = byWeekdayHour[day]?.[hour]?.[minute];
+
+      if (data) {
+        const color = heatColor(data.avg, minVal, maxVal);
+        const minutes = secToMin(data.avg);
+        html += `<td style="background-color:${color}" title="${minutes} min (n=${data.count})">${minutes}</td>`;
+      } else {
+        html += '<td style="background-color:#e5e7eb;color:#9ca3af">—</td>';
+      }
+    }
+    html += '</tr>';
+  }
+
+  html += '</tbody></table>';
   document.getElementById(containerId).innerHTML = html;
 }
 
@@ -1111,10 +1112,10 @@ function displayAllRoutes() {
 
   // Heatmaps for both routes (nur relevante Stunden)
   if (statsData.routes["outbound"]?.by_weekday_hour) {
-    renderHeatmap(statsData.routes["outbound"].by_weekday_hour, "heatmap-container-outbound", "outbound");
+    renderSparseHeatmap(statsData.routes["outbound"].by_weekday_hour, "heatmap-container-outbound", "outbound");
   }
   if (statsData.routes["return"]?.by_weekday_hour) {
-    renderHeatmap(statsData.routes["return"].by_weekday_hour, "heatmap-container-return", "return");
+    renderSparseHeatmap(statsData.routes["return"].by_weekday_hour, "heatmap-container-return", "return");
   }
 
   // Timeseries with both routes
