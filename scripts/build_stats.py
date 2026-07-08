@@ -44,24 +44,29 @@ def build(
         # Neuester Eintrag
         latest_row = max(rows, key=lambda r: dt.datetime.fromisoformat(r["timestamp_utc"]))
 
-        # Aggregation pro Wochentag × Stunde
-        by_weekday_hour: dict = {}
+        # Aggregation pro Wochentag × Stunde × Minute
+        by_weekday_hour_minute: dict = {}
         for row in rows:
-            wd = row["weekday_local"]
-            hr = row["hour_local"].zfill(2)
+            ts = dt.datetime.fromisoformat(row["timestamp_utc"])
+            wd = ts.strftime("%A")  # "Monday"
+            hr = str(ts.hour).zfill(2)  # "08"
+            mm = str(ts.minute).zfill(2)  # "35"
             val = int(row["duration_seconds"])
-            by_weekday_hour.setdefault(wd, {}).setdefault(hr, []).append(val)
+
+            by_weekday_hour_minute.setdefault(wd, {}).setdefault(hr, {}).setdefault(mm, []).append(val)
 
         aggregated: dict = {}
-        for wd, hours in by_weekday_hour.items():
+        for wd, hours in by_weekday_hour_minute.items():
             aggregated[wd] = {}
-            for hr, values in hours.items():
-                aggregated[wd][hr] = {
-                    "avg": round(mean(values)),
-                    "min": min(values),
-                    "max": max(values),
-                    "count": len(values),
-                }
+            for hr, minutes in hours.items():
+                aggregated[wd][hr] = {}
+                for mm, values in minutes.items():
+                    aggregated[wd][hr][mm] = {
+                        "avg": round(mean(values)),
+                        "min": min(values),
+                        "max": max(values),
+                        "count": len(values),
+                    }
 
         output["routes"][route_id] = {
             "latest": {

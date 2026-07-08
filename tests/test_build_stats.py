@@ -61,10 +61,10 @@ def test_build_single_row(tmp_path):
     assert route["latest"]["duration_seconds"] == 4500
     assert route["latest"]["origin_lat"] == 48.7784
     assert route["latest"]["destination_lat"] == 48.1351
-    assert route["by_weekday_hour"]["Monday"]["08"]["avg"] == 4500
-    assert route["by_weekday_hour"]["Monday"]["08"]["min"] == 4500
-    assert route["by_weekday_hour"]["Monday"]["08"]["max"] == 4500
-    assert route["by_weekday_hour"]["Monday"]["08"]["count"] == 1
+    assert route["by_weekday_hour"]["Monday"]["07"]["00"]["avg"] == 4500
+    assert route["by_weekday_hour"]["Monday"]["07"]["00"]["min"] == 4500
+    assert route["by_weekday_hour"]["Monday"]["07"]["00"]["max"] == 4500
+    assert route["by_weekday_hour"]["Monday"]["07"]["00"]["count"] == 1
 
 
 def test_build_aggregates_multiple_rows(tmp_path):
@@ -91,7 +91,7 @@ def test_build_aggregates_multiple_rows(tmp_path):
     build(csv_path=csv_path, json_path=json_path)
 
     result = json.loads(json_path.read_text())
-    cell = result["routes"]["r1"]["by_weekday_hour"]["Monday"]["08"]
+    cell = result["routes"]["r1"]["by_weekday_hour"]["Monday"]["07"]["00"]
     assert cell["avg"] == 4000
     assert cell["min"] == 3000
     assert cell["max"] == 5000
@@ -153,3 +153,50 @@ def test_build_multiple_routes(tmp_path):
     assert set(result["routes"].keys()) == {"route_a", "route_b"}
     assert result["routes"]["route_a"]["latest"]["duration_seconds"] == 1000
     assert result["routes"]["route_b"]["latest"]["duration_seconds"] == 9000
+
+
+def test_minute_level_aggregation(tmp_path):
+    """Verify 3-level aggregation: weekday -> hour -> minute."""
+    csv_path = tmp_path / "route_history.csv"
+    json_path = tmp_path / "stats.json"
+
+    write_csv(csv_path, [
+        {
+            "route_id": "test",
+            "timestamp_utc": "2025-01-13T07:35:00+00:00",
+            "weekday_local": "Monday",
+            "hour_local": "08",
+            "origin_lat": 0, "origin_lng": 0,
+            "destination_lat": 0, "destination_lng": 0,
+            "duration_seconds": 1800,
+            "static_duration_seconds": 1700,
+            "travel_mode": "DRIVE",
+            "source": "google_routes_api",
+        },
+        {
+            "route_id": "test",
+            "timestamp_utc": "2025-01-13T07:40:00+00:00",
+            "weekday_local": "Monday",
+            "hour_local": "08",
+            "origin_lat": 0, "origin_lng": 0,
+            "destination_lat": 0, "destination_lng": 0,
+            "duration_seconds": 1900,
+            "static_duration_seconds": 1700,
+            "travel_mode": "DRIVE",
+            "source": "google_routes_api",
+        },
+    ])
+
+    from build_stats import build
+    build(csv_path=csv_path, json_path=json_path)
+
+    result = json.loads(json_path.read_text())
+    monday_07 = result["routes"]["test"]["by_weekday_hour"]["Monday"]["07"]
+
+    # Should have two separate minute buckets
+    assert "35" in monday_07
+    assert "40" in monday_07
+    assert monday_07["35"]["avg"] == 1800
+    assert monday_07["35"]["count"] == 1
+    assert monday_07["40"]["avg"] == 1900
+    assert monday_07["40"]["count"] == 1
