@@ -36,11 +36,13 @@ python -m http.server 8080
 
 ### Data Pipeline
 
-1. **Scheduled GitHub Action** (`.github/workflows/route-monitor.yml`)
-   - Runs on cron schedule: weekdays only
+1. **External Scheduling via cron-job.org**
+   - Triggers GitHub Actions workflow via `workflow_dispatch` API
+   - Schedule: weekdays only (Mo-Fr)
      - Morning: 06:00-09:00 Berlin time, 15-minute intervals
      - Evening: 16:00-19:00 Berlin time, 30-minute intervals
-   - Can be triggered manually via workflow_dispatch
+   - Timezone-aware: `Europe/Berlin` (handles DST automatically)
+   - Can also be triggered manually via workflow_dispatch
 
 2. **fetch_route.py** — API fetch + CSV append + stats rebuild
    - `is_within_window()`: Guards against off-schedule runs (e.g., manual triggers)
@@ -93,6 +95,8 @@ The `is_within_window()` function enforces:
 - Evening: 16:00-18:59 (hour < 19), minute % 30 == 0
 
 **Why**: Prevents accidental API costs from manual workflow runs outside intended schedule.
+
+**Note**: cron-job.org schedules extend to 09:00 and 19:00, but `is_within_window()` rejects hour 9 and 19 (stricter guard). This is intentional for cost control.
 
 ### Time-Based Direction Selection
 
