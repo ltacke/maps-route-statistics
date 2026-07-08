@@ -2,3 +2,4 @@ route_id,timestamp_utc,weekday_local,hour_local,origin_lat,origin_lng,destinatio
 outbound,2026-07-07T15:57:44+00:00,Tuesday,17,48.7816677,9.1623606,48.6559123,8.9498734,2182,2099,DRIVE,google_routes_api
 return,2026-07-07T15:57:44+00:00,Tuesday,17,48.6559123,8.9498734,48.7816677,9.1623606,2281,1731,DRIVE,google_routes_api
 return,2026-07-07T16:37:48+00:00,Tuesday,18,48.6559123,8.9498734,48.7816677,9.1623606,1738,1731,DRIVE,google_routes_api
+outbound,2026-07-08T06:34:24+00:00,Wednesday,08,48.7816677,9.1623606,48.6559123,8.9498734,1791,1660,DRIVE,google_routes_api
