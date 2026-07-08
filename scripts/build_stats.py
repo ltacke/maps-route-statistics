@@ -41,19 +41,36 @@ def build(
     }
 
     for route_id, rows in routes.items():
-        # Neuester Eintrag
-        latest_row = max(rows, key=lambda r: dt.datetime.fromisoformat(r["timestamp_utc"]))
+        # Neuester Eintrag (mit Error-Handling für malformed timestamps)
+        valid_rows = []
+        for row in rows:
+            try:
+                dt.datetime.fromisoformat(row["timestamp_utc"])
+                valid_rows.append(row)
+            except (ValueError, KeyError) as e:
+                print(f"Warning: Skipping row with malformed timestamp in route '{route_id}': {e}")
+                continue
+
+        if not valid_rows:
+            print(f"Warning: No valid rows found for route '{route_id}', skipping")
+            continue
+
+        latest_row = max(valid_rows, key=lambda r: dt.datetime.fromisoformat(r["timestamp_utc"]))
 
         # Aggregation pro Wochentag × Stunde × Minute
         by_weekday_hour_minute: dict = {}
-        for row in rows:
-            ts = dt.datetime.fromisoformat(row["timestamp_utc"])
-            wd = ts.strftime("%A")  # "Monday"
-            hr = str(ts.hour).zfill(2)  # "08"
-            mm = str(ts.minute).zfill(2)  # "35"
-            val = int(row["duration_seconds"])
+        for row in valid_rows:
+            try:
+                ts = dt.datetime.fromisoformat(row["timestamp_utc"])
+                wd = ts.strftime("%A")  # "Monday"
+                hr = str(ts.hour).zfill(2)  # "08"
+                mm = str(ts.minute).zfill(2)  # "35"
+                val = int(row["duration_seconds"])
 
-            by_weekday_hour_minute.setdefault(wd, {}).setdefault(hr, {}).setdefault(mm, []).append(val)
+                by_weekday_hour_minute.setdefault(wd, {}).setdefault(hr, {}).setdefault(mm, []).append(val)
+            except (ValueError, KeyError) as e:
+                print(f"Warning: Skipping row in route '{route_id}' due to parsing error: {e}")
+                continue
 
         aggregated: dict = {}
         for wd, hours in by_weekday_hour_minute.items():
