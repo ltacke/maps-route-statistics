@@ -7,7 +7,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 Route monitoring system that tracks traffic patterns on a fixed route using Google Routes API. The system:
 - Fetches route durations bidirectionally (outbound + return) at scheduled intervals
 - Logs data to CSV with bidirectional tracking per run
-- Aggregates statistics by weekday and hour
+- Aggregates statistics by weekday, hour, and minute
 - Visualizes data on a GitHub Pages dashboard with Leaflet map and Chart.js
 
 **Key architectural decision**: Each run fetches BOTH directions (outbound A→B, return B→A) to capture asymmetric traffic patterns.
@@ -54,7 +54,7 @@ python -m http.server 8080
 
 3. **build_stats.py** — CSV → JSON aggregation
    - Reads entire CSV
-   - Aggregates by `route_id` (outbound/return) → weekday → hour
+   - Aggregates by `route_id` (outbound/return) → weekday → hour → minute
    - Outputs min/max/avg/count per bucket
    - Atomic write pattern (temp file → rename)
    - Can be run standalone OR imported by fetch_route.py
@@ -115,9 +115,23 @@ else:
 - Makes logical sense (no need to measure return route at 7am)
 - Creates cleaner, more relevant data
 
+### Stats Aggregation
+
+`build_stats.py` aggregates by `weekday × hour × minute` (3 levels):
+- Extracts minute from `timestamp_utc` (ISO 8601)
+- Groups measurements by route_id → weekday → hour → minute
+- Outputs JSON: `stats.routes[id].by_weekday_hour[day][hour][minute] = {avg, min, max, count}`
+
+**Why minute-level?** With 5-minute sampling intervals, hour-level buckets lose precision. 
+Early-hour measurements (08:05) and late-hour (08:55) differ significantly but landed in 
+the same "08" bucket. Minute-level enables precise recommendations like "leave at 08:35".
+
+**Sparse representation:** Frontend displays only time-slots with data (no empty columns).
+
 ### Stats Rebuild Trigger
 
-`fetch_route.py` calls `build_stats()` after every successful fetch. This keeps `stats.json` always in sync with the CSV, avoiding manual rebuild steps.
+`fetch_route.py` calls `build_stats()` after every successful fetch. This keeps `stats.json` 
+always in sync with the CSV, avoiding manual rebuild steps.
 
 ## Testing
 
