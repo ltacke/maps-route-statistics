@@ -192,7 +192,7 @@
           </div>
           <div>
             <label style="font-size:12px;color:#57606a;display:block;margin-bottom:4px">Uhrzeit</label>
-            <select id="calc-hour-outbound" style="width:100%;padding:6px;border:1px solid #e5e7eb;border-radius:4px;font-size:13px"></select>
+            <select id="calc-time-outbound" style="width:100%;padding:6px;border:1px solid #e5e7eb;border-radius:4px;font-size:13px"></select>
           </div>
         </div>
         <button onclick="calculateSavings('outbound')" style="width:100%;padding:8px;background:#3b82d4;color:white;border:none;border-radius:4px;cursor:pointer;font-size:13px">
@@ -215,7 +215,7 @@
           </div>
           <div>
             <label style="font-size:12px;color:#57606a;display:block;margin-bottom:4px">Uhrzeit</label>
-            <select id="calc-hour-return" style="width:100%;padding:6px;border:1px solid #e5e7eb;border-radius:4px;font-size:13px"></select>
+            <select id="calc-time-return" style="width:100%;padding:6px;border:1px solid #e5e7eb;border-radius:4px;font-size:13px"></select>
           </div>
         </div>
         <button onclick="calculateSavings('return')" style="width:100%;padding:8px;background:#16a34a;color:white;border:none;border-radius:4px;cursor:pointer;font-size:13px">
@@ -903,24 +903,31 @@ function renderDelayChart(routeId) {
 // ── Zeitersparnis-Rechner ──────────────────────────────────────────────────────
 
 function populateTimeSavingsCalculator() {
-  // Befülle Hour-Dropdowns mit verfügbaren Stunden (nur relevante)
+  // Befülle Zeit-Dropdowns mit verfügbaren Zeitslots (HH:MM)
   ['outbound', 'return'].forEach(routeId => {
     const routeData = statsData.routes[routeId];
     if (!routeData) return;
 
-    const hours = new Set();
+    const timeSlots = new Set();
     for (const day of WEEKDAY_ORDER) {
-      if (routeData.by_weekday_hour[day]) {
-        Object.keys(routeData.by_weekday_hour[day]).forEach(h => {
-          // Nur relevante Stunden hinzufügen
-          if (isRelevantHour(h, routeId)) hours.add(h);
-        });
+      if (!routeData.by_weekday_hour[day]) continue;
+      for (const [hour, minutes] of Object.entries(routeData.by_weekday_hour[day])) {
+        // Nur relevante Stunden berücksichtigen
+        if (!isRelevantHour(hour, routeId)) continue;
+        for (const minute of Object.keys(minutes)) {
+          timeSlots.add(`${hour}:${minute}`);
+        }
       }
     }
 
-    const sortedHours = Array.from(hours).sort((a, b) => parseInt(a) - parseInt(b));
-    const select = document.getElementById(`calc-hour-${routeId}`);
-    select.innerHTML = sortedHours.map(h => `<option value="${h}">${h}:00</option>`).join('');
+    const sortedSlots = Array.from(timeSlots).sort((a, b) => {
+      const [ha, ma] = a.split(':').map(Number);
+      const [hb, mb] = b.split(':').map(Number);
+      return (ha * 60 + ma) - (hb * 60 + mb);
+    });
+
+    const select = document.getElementById(`calc-time-${routeId}`);
+    select.innerHTML = sortedSlots.map(slot => `<option value="${slot}">${slot}</option>`).join('');
   });
 
   document.getElementById("card-time-savings").style.display = "";
@@ -928,19 +935,19 @@ function populateTimeSavingsCalculator() {
 
 function calculateSavings(routeId) {
   const day = document.getElementById(`calc-day-${routeId}`).value;
-  const hour = document.getElementById(`calc-hour-${routeId}`).value;
+  const timeSlot = document.getElementById(`calc-time-${routeId}`).value;
   const routeData = statsData.routes[routeId];
 
-  if (!routeData?.by_weekday_hour[day]?.[hour]) {
+  const [hour, minute] = timeSlot.split(':');
+  const selectedData = routeData?.by_weekday_hour[day]?.[hour]?.[minute];
+
+  if (!selectedData) {
     document.getElementById(`calc-result-${routeId}`).innerHTML =
       '<p style="color:#dc2626">Keine Daten für diese Zeit vorhanden.</p>';
     return;
   }
 
-  // Aggregate all minute buckets within this hour to get hour-level average
-  const hourData = routeData.by_weekday_hour[day][hour];
-  const minuteValues = Object.values(hourData).map(m => m.avg);
-  const selectedTime = minuteValues.reduce((sum, v) => sum + v, 0) / minuteValues.length;
+  const selectedTime = selectedData.avg;
   const best = analyzeBestTimes(routeData, routeId);
   const bestForDay = best[day];
 
@@ -954,7 +961,7 @@ function calculateSavings(routeId) {
   const savingsMin = secToMin(Math.abs(savings));
 
   let html = `<div style="padding:12px;background:#f7f8fa;border-radius:6px">`;
-  html += `<div><strong>${WEEKDAY_DE[day]} um ${hour}:00 Uhr</strong></div>`;
+  html += `<div><strong>${WEEKDAY_DE[day]} um ${timeSlot} Uhr</strong></div>`;
   html += `<div style="margin:8px 0">Fahrtdauer: <strong>${secToMin(selectedTime)} Min</strong></div>`;
 
   if (savings > 0) {
