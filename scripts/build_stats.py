@@ -64,7 +64,8 @@ def build(
                 ts = dt.datetime.fromisoformat(row["timestamp_utc"])
                 wd = row["weekday_local"]  # "Monday" (local time from CSV)
                 hr = row["hour_local"].zfill(2)  # "16" (local time from CSV)
-                mm = str(ts.minute).zfill(2)  # "01" (minutes same across timezones)
+                # Round minute to nearest 5-minute interval (00, 05, 10, ..., 55)
+                mm = str(round(ts.minute / 5) * 5).zfill(2)
                 val = int(row["duration_seconds"])
 
                 by_weekday_hour_minute.setdefault(wd, {}).setdefault(hr, {}).setdefault(mm, []).append(val)
