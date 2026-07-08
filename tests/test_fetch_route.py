@@ -38,8 +38,16 @@ def test_morning_slot_off_minute():
     assert is_within_window(_local(2025, 1, 13, 7, 1)) is True
 
 def test_morning_end_boundary():
-    # Mo 09:00 → nicht aktiv (Endpunkt exklusiv: hour < 9)
-    assert is_within_window(_local(2025, 1, 13, 9, 0)) is False
+    # Mo 09:00 → aktiv (erweitert bis 09:59)
+    assert is_within_window(_local(2025, 1, 13, 9, 0)) is True
+
+def test_morning_end_extended():
+    # Mo 09:45 → aktiv (hour < 10)
+    assert is_within_window(_local(2025, 1, 13, 9, 45)) is True
+
+def test_morning_past_end():
+    # Mo 10:00 → nicht aktiv (Endpunkt exklusiv: hour < 10)
+    assert is_within_window(_local(2025, 1, 13, 10, 0)) is False
 
 def test_morning_before_start():
     # Mo 05:45 → nicht aktiv
@@ -61,8 +69,16 @@ def test_evening_slot_off_minute():
     assert is_within_window(_local(2025, 1, 13, 16, 15)) is True
 
 def test_evening_end_boundary():
-    # Mo 19:00 → nicht aktiv (Endpunkt exklusiv: hour < 19)
-    assert is_within_window(_local(2025, 1, 13, 19, 0)) is False
+    # Mo 19:00 → aktiv (erweitert bis 19:59)
+    assert is_within_window(_local(2025, 1, 13, 19, 0)) is True
+
+def test_evening_end_extended():
+    # Mo 19:30 → aktiv (hour < 20)
+    assert is_within_window(_local(2025, 1, 13, 19, 30)) is True
+
+def test_evening_past_end():
+    # Mo 20:00 → nicht aktiv (Endpunkt exklusiv: hour < 20)
+    assert is_within_window(_local(2025, 1, 13, 20, 0)) is False
 
 def test_midday_inactive():
     # Mo 12:00 → nicht aktiv (zwischen den Fenstern)

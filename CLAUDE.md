@@ -91,12 +91,10 @@ route_id,timestamp_utc,weekday_local,hour_local,origin_lat,origin_lng,destinatio
 
 The `is_within_window()` function enforces:
 - Weekdays only (Mo-Fr, `weekday < 5`)
-- Morning: 06:00-08:59 (hour < 9), minute % 15 == 0
-- Evening: 16:00-18:59 (hour < 19), minute % 30 == 0
+- Morning: 06:00-09:59 (hour < 10)
+- Evening: 16:00-19:59 (hour < 20)
 
 **Why**: Prevents accidental API costs from manual workflow runs outside intended schedule.
-
-**Note**: cron-job.org schedules extend to 09:00 and 19:00, but `is_within_window()` rejects hour 9 and 19 (stricter guard). This is intentional for cost control.
 
 ### Time-Based Direction Selection
 
