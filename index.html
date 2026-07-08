@@ -389,18 +389,30 @@ function analyzeBestTimes(routeData, routeId) {
   const recommendations = {};
   for (const day of WEEKDAY_ORDER) {
     if (!routeData.by_weekday_hour[day]) continue;
-    let bestHour = null;
+    let bestSlot = null;
     let bestTime = Infinity;
-    for (const [hour, data] of Object.entries(routeData.by_weekday_hour[day])) {
+    let bestCount = 0;
+
+    for (const [hour, minutes] of Object.entries(routeData.by_weekday_hour[day])) {
       // Nur relevante Stunden berücksichtigen
       if (!isRelevantHour(hour, routeId)) continue;
-      if (data.avg < bestTime) {
-        bestTime = data.avg;
-        bestHour = hour;
+
+      for (const [minute, data] of Object.entries(minutes)) {
+        const timeSlot = `${hour}:${minute}`;
+        if (data.avg < bestTime) {
+          bestTime = data.avg;
+          bestSlot = timeSlot;
+          bestCount = data.count;
+        }
       }
     }
-    if (bestHour) {
-      recommendations[day] = { hour: bestHour, duration: bestTime, count: routeData.by_weekday_hour[day][bestHour].count };
+
+    if (bestSlot) {
+      recommendations[day] = {
+        timeSlot: bestSlot,  // "08:35"
+        duration: bestTime,
+        count: bestCount
+      };
     }
   }
   return recommendations;
@@ -410,18 +422,24 @@ function analyzeWorstTimes(routeData, routeId) {
   const worst = {};
   for (const day of WEEKDAY_ORDER) {
     if (!routeData.by_weekday_hour[day]) continue;
-    let worstHour = null;
+    let worstSlot = null;
     let worstTime = -Infinity;
-    for (const [hour, data] of Object.entries(routeData.by_weekday_hour[day])) {
+
+    for (const [hour, minutes] of Object.entries(routeData.by_weekday_hour[day])) {
       // Nur relevante Stunden berücksichtigen
       if (!isRelevantHour(hour, routeId)) continue;
-      if (data.avg > worstTime) {
-        worstTime = data.avg;
-        worstHour = hour;
+
+      for (const [minute, data] of Object.entries(minutes)) {
+        const timeSlot = `${hour}:${minute}`;
+        if (data.avg > worstTime) {
+          worstTime = data.avg;
+          worstSlot = timeSlot;
+        }
       }
     }
-    if (worstHour) {
-      worst[day] = { hour: worstHour, duration: worstTime };
+
+    if (worstSlot) {
+      worst[day] = { timeSlot: worstSlot, duration: worstTime };
     }
   }
   return worst;
@@ -479,21 +497,16 @@ function compareTodayVsAverage(latest, byWeekdayHour) {
   const ts = new Date(latest.timestamp_utc);
   const day = ts.toLocaleDateString('en-US', { weekday: 'long' });
   const hour = String(ts.getHours()).padStart(2, '0');
+  const minute = String(ts.getMinutes()).padStart(2, '0');
 
-  const avgData = byWeekdayHour[day]?.[hour];
+  const avgData = byWeekdayHour[day]?.[hour]?.[minute];
   if (!avgData) return null;
 
-  const currentDur = latest.duration_seconds;
-  const avgDur = avgData.avg;
-  const diff = currentDur - avgDur;
-  const diffPercent = Math.round((diff / avgDur) * 100);
-
   return {
-    current: secToMin(currentDur),
-    average: secToMin(avgDur),
-    diff: secToMin(Math.abs(diff)),
-    diffPercent: Math.abs(diffPercent),
-    isFaster: diff < 0
+    current: latest.duration_seconds,
+    average: avgData.avg,
+    diff: latest.duration_seconds - avgData.avg,
+    count: avgData.count,
   };
 }
 
@@ -608,7 +621,7 @@ function renderRecommendations(routeId) {
     if (best[day]) {
       const savings = ""; // TODO: könnte man gegen worst time berechnen
       html += `<div style="padding:8px 0;border-bottom:1px solid #e5e7eb">
-        <strong>${WEEKDAY_DE[day]}</strong> um <strong>${best[day].hour}:00</strong> Uhr
+        <strong>${WEEKDAY_DE[day]}</strong> um <strong>${best[day].timeSlot}</strong> Uhr
         → <span style="color:#16a34a">${secToMin(best[day].duration)} Min</span>
         <span style="font-size:11px;color:#57606a">(n=${best[day].count})</span>
       </div>`;
@@ -628,10 +641,14 @@ function renderRanking(routeId) {
   const times = [];
   for (const day of WEEKDAY_ORDER) {
     if (!routeData.by_weekday_hour[day]) continue;
-    for (const [hour, data] of Object.entries(routeData.by_weekday_hour[day])) {
+    for (const [hour, minutes] of Object.entries(routeData.by_weekday_hour[day])) {
       // Nur relevante Stunden berücksichtigen
       if (!isRelevantHour(hour, routeId)) continue;
-      times.push({ day, hour, duration: data.avg, count: data.count });
+
+      for (const [minute, data] of Object.entries(minutes)) {
+        const timeSlot = `${hour}:${minute}`;
+        times.push({ day, timeSlot, duration: data.avg, count: data.count });
+      }
     }
   }
 
@@ -643,14 +660,14 @@ function renderRanking(routeId) {
   html += '<h4 style="font-size:12px;font-weight:600;color:#16a34a;margin-bottom:8px">✓ Top 5 Beste</h4>';
   best.forEach((t, i) => {
     html += `<div style="padding:4px 0;font-size:12px">
-      ${i+1}. ${WEEKDAY_DE[t.day]} ${t.hour}:00 → <strong>${secToMin(t.duration)} min</strong>
+      ${i+1}. ${WEEKDAY_DE[t.day]} ${t.timeSlot} → <strong>${secToMin(t.duration)} min</strong>
     </div>`;
   });
 
   html += '<h4 style="font-size:12px;font-weight:600;color:#dc2626;margin:16px 0 8px">⚠ Top 5 Schlechteste</h4>';
   worst.forEach((t, i) => {
     html += `<div style="padding:4px 0;font-size:12px">
-      ${i+1}. ${WEEKDAY_DE[t.day]} ${t.hour}:00 → <strong>${secToMin(t.duration)} min</strong>
+      ${i+1}. ${WEEKDAY_DE[t.day]} ${t.timeSlot} → <strong>${secToMin(t.duration)} min</strong>
     </div>`;
   });
   html += '</div>';
@@ -926,14 +943,14 @@ function calculateSavings(routeId) {
       ⚡ Du könntest <strong>${savingsMin} Min</strong> sparen!
     </div>`;
     html += `<div style="margin-top:8px;font-size:12px;color:#57606a">
-      Beste Zeit: ${bestForDay.hour}:00 Uhr (${secToMin(bestForDay.duration)} Min)
+      Beste Zeit: ${bestForDay.timeSlot} Uhr (${secToMin(bestForDay.duration)} Min)
     </div>`;
   } else if (savings < 0) {
     html += `<div style="color:#dc2626">
       🐌 ${savingsMin} Min langsamer als beste Zeit
     </div>`;
     html += `<div style="margin-top:8px;font-size:12px;color:#57606a">
-      Beste Zeit: ${bestForDay.hour}:00 Uhr (${secToMin(bestForDay.duration)} Min)
+      Beste Zeit: ${bestForDay.timeSlot} Uhr (${secToMin(bestForDay.duration)} Min)
     </div>`;
   } else {
     html += `<div style="color:#16a34a;font-weight:600">
