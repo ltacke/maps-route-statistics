@@ -62,9 +62,9 @@ def build(
         for row in valid_rows:
             try:
                 ts = dt.datetime.fromisoformat(row["timestamp_utc"])
-                wd = ts.strftime("%A")  # "Monday"
-                hr = str(ts.hour).zfill(2)  # "08"
-                mm = str(ts.minute).zfill(2)  # "35"
+                wd = row["weekday_local"]  # "Monday" (local time from CSV)
+                hr = row["hour_local"].zfill(2)  # "16" (local time from CSV)
+                mm = str(ts.minute).zfill(2)  # "01" (minutes same across timezones)
                 val = int(row["duration_seconds"])
 
                 by_weekday_hour_minute.setdefault(wd, {}).setdefault(hr, {}).setdefault(mm, []).append(val)
