@@ -140,6 +140,17 @@
     <div id="today-vs-avg" style="margin-top:24px;padding-top:24px;border-top:1px solid #e5e7eb"></div>
   </div>
 
+  <!-- Kompakte Heatmap (3 Tage) - Beide Richtungen -->
+  <div class="card" id="card-heatmap-compact" style="display:none">
+    <h2>Übersicht: Heute & Nachbartage</h2>
+    <div id="heatmap-compact-container"></div>
+    <div class="legend">
+      <span>schnell</span>
+      <div class="legend-bar"></div>
+      <span>langsam</span>
+    </div>
+  </div>
+
   <!-- Empfehlungen: Beste Abfahrtszeit -->
   <div class="card" id="card-recommendations" style="display:none">
     <h2>💡 Empfehlungen: Beste Abfahrtszeit</h2>
@@ -234,26 +245,6 @@
     </div>
   </div>
 
-  <!-- Monatlicher Trend -->
-  <div class="card" id="card-monthly" style="display:none">
-    <h2>Monatlicher Trend</h2>
-    <div class="chart-wrap">
-      <canvas id="chart-monthly"></canvas>
-    </div>
-  </div>
-
-  <!-- Zeitreihenchart -->
-  <div class="card">
-    <h2>Verlauf</h2>
-    <div class="toggle-group">
-      <button class="toggle-btn active" data-days="7">7 Tage</button>
-      <button class="toggle-btn" data-days="30">30 Tage</button>
-      <button class="toggle-btn" data-days="90">90 Tage</button>
-    </div>
-    <div class="chart-wrap">
-      <canvas id="chart-timeseries"></canvas>
-    </div>
-  </div>
 
   <!-- Zuverlässigkeit -->
   <div class="card" id="card-reliability" style="display:none">
@@ -293,20 +284,10 @@
     </div>
   </div>
 
-  <!-- Heatmaps - Beide Richtungen -->
-  <div class="card">
-    <h2>Durchschnitt nach Wochentag & Uhrzeit</h2>
-
-    <h3 style="font-size:14px;font-weight:600;margin-bottom:12px;margin-top:16px;color:#3b82d4">→ Hinfahrt</h3>
-    <div class="heatmap-wrap">
-      <div id="heatmap-container-outbound"><p style="color:#57606a;font-size:13px">Noch keine Aggregationsdaten vorhanden.</p></div>
-    </div>
-
-    <h3 style="font-size:14px;font-weight:600;margin-bottom:12px;margin-top:24px;color:#16a34a">← Rückfahrt</h3>
-    <div class="heatmap-wrap">
-      <div id="heatmap-container-return"><p style="color:#57606a;font-size:13px">Noch keine Aggregationsdaten vorhanden.</p></div>
-    </div>
-
+  <!-- Volle Heatmaps - Beide Richtungen -->
+  <div class="card" id="card-heatmap-full" style="display:none">
+    <h2>Vollständige Wochenansicht</h2>
+    <div id="heatmap-full-container"></div>
     <div class="legend">
       <span>schnell</span>
       <div class="legend-bar"></div>
@@ -336,14 +317,11 @@ function isRelevantHour(hour, routeId) {
   return RELEVANT_HOURS[routeId].includes(String(hour).padStart(2, "0"));
 }
 
-let timeseriesChart = null;
 let weekdayChart = null;
-let monthlyChart = null;
 let reliabilityCharts = { outbound: null, return: null };
 let delayCharts = { outbound: null, return: null };
 let routeMap = null;
 let allRows = [];
-let activeDays = 7;
 let statsData = null;
 
 // ── Format Detection ───────────────────────────────────────────────────────────
@@ -543,66 +521,14 @@ function compareTodayVsAverage(latest, byWeekdayHour) {
   };
 }
 
-// ── Zeitreihenchart ────────────────────────────────────────────────────────────
+// ── Heatmap (Invertiert: Zeiten als Zeilen, Tage als Spalten) ─────────────────
 
-function renderTimeseries(rows, days) {
-  const ctx = document.getElementById("chart-timeseries").getContext("2d");
-  const cutoff = new Date(Date.now() - days * 86400 * 1000);
-
-  // Separate outbound and return
-  const outbound = rows.filter(r => r.route_id === "outbound" && new Date(r.timestamp_utc) >= cutoff);
-  const returnRoute = rows.filter(r => r.route_id === "return" && new Date(r.timestamp_utc) >= cutoff);
-
-  // Use timestamps from outbound as labels (they should be identical)
-  const labels = outbound.map(r => formatTs(r.timestamp_utc));
-
-  if (timeseriesChart) timeseriesChart.destroy();
-  timeseriesChart = new Chart(ctx, {
-    type: "line",
-    data: {
-      labels,
-      datasets: [
-        {
-          label: "Hinfahrt",
-          data: outbound.map(r => secToMin(parseInt(r.duration_seconds))),
-          borderColor: "#3b82d4",
-          backgroundColor: "rgba(59,130,212,0.08)",
-          borderWidth: 2,
-          pointRadius: labels.length > 100 ? 0 : 3,
-          tension: 0.3,
-        },
-        {
-          label: "Rückfahrt",
-          data: returnRoute.map(r => secToMin(parseInt(r.duration_seconds))),
-          borderColor: "#16a34a",
-          backgroundColor: "rgba(22,163,74,0.08)",
-          borderWidth: 2,
-          pointRadius: labels.length > 100 ? 0 : 3,
-          tension: 0.3,
-        },
-      ],
-    },
-    options: {
-      responsive: true,
-      maintainAspectRatio: false,
-      plugins: { legend: { position: "bottom" } },
-      scales: {
-        x: { ticks: { maxTicksLimit: 8, maxRotation: 0 } },
-        y: { title: { display: true, text: "Minuten" }, beginAtZero: false },
-      },
-    },
-  });
-}
-
-// ── Heatmap ────────────────────────────────────────────────────────────────────
-
-function renderSparseHeatmap(byWeekdayHour, containerId, routeId) {
+function renderInvertedHeatmap(byWeekdayHour, containerId, routeId, daysFilter = null) {
   // Collect all time-slots with data (only relevant hours for this route)
   const timeSlots = new Set();
   for (const day of WEEKDAY_ORDER) {
     if (!byWeekdayHour[day]) continue;
     for (const [hour, minutes] of Object.entries(byWeekdayHour[day])) {
-      // Only include relevant hours for this route
       if (!isRelevantHour(hour, routeId)) continue;
       for (const minute of Object.keys(minutes)) {
         timeSlots.add(`${hour}:${minute}`);
@@ -610,12 +536,19 @@ function renderSparseHeatmap(byWeekdayHour, containerId, routeId) {
     }
   }
 
-  const sortedSlots = Array.from(timeSlots).sort();
+  const sortedSlots = Array.from(timeSlots).sort((a, b) => {
+    const [ha, ma] = a.split(':').map(Number);
+    const [hb, mb] = b.split(':').map(Number);
+    return (ha * 60 + ma) - (hb * 60 + mb);
+  });
 
   if (sortedSlots.length === 0) {
     document.getElementById(containerId).innerHTML = '<p style="color:#57606a;font-size:13px">Noch keine Aggregationsdaten vorhanden.</p>';
     return;
   }
+
+  // Determine which days to show
+  const daysToShow = daysFilter || WEEKDAY_ORDER;
 
   // Find min/max for color scaling
   let minVal = Infinity, maxVal = -Infinity;
@@ -630,23 +563,24 @@ function renderSparseHeatmap(byWeekdayHour, containerId, routeId) {
     }
   }
 
-  // Build table: rows = weekdays, columns = sparse time-slots
-  let html = '<table class="heatmap"><thead><tr><th>Tag</th>';
-  sortedSlots.forEach(slot => {
-    html += `<th>${slot}</th>`;
+  // Build table: rows = time-slots, columns = weekdays
+  let html = '<table class="heatmap"><thead><tr><th>Zeit</th>';
+  daysToShow.forEach(day => {
+    html += `<th>${WEEKDAY_DE[day]}</th>`;
   });
   html += '</tr></thead><tbody>';
 
-  for (const day of WEEKDAY_ORDER) {
-    html += `<tr><th>${WEEKDAY_DE[day]}</th>`;
-    for (const slot of sortedSlots) {
-      const [hour, minute] = slot.split(':');
+  for (const slot of sortedSlots) {
+    html += `<tr><th>${slot}</th>`;
+    const [hour, minute] = slot.split(':');
+
+    for (const day of daysToShow) {
       const data = byWeekdayHour[day]?.[hour]?.[minute];
 
       if (data) {
         const color = heatColor(data.avg, minVal, maxVal);
         const minutes = secToMin(data.avg);
-        html += `<td style="background-color:${color}" title="${minutes} min (n=${data.count})">${minutes}</td>`;
+        html += `<td style="background-color:${color}" title="${WEEKDAY_DE[day]} ${slot}: ${minutes} min (n=${data.count})">${minutes}</td>`;
       } else {
         html += '<td style="background-color:#e5e7eb;color:#9ca3af">—</td>';
       }
@@ -656,6 +590,43 @@ function renderSparseHeatmap(byWeekdayHour, containerId, routeId) {
 
   html += '</tbody></table>';
   document.getElementById(containerId).innerHTML = html;
+}
+
+// Helper: Get 3 days centered on today (or closest weekday)
+function getThreeDayWindow() {
+  const today = new Date();
+  const dayIndex = today.getDay(); // 0=Sunday, 1=Monday, ..., 6=Saturday
+
+  // Map Sunday(0) → -1 (not in WEEKDAY_ORDER), Monday(1) → 0, ..., Friday(5) → 4
+  const weekdayIndex = dayIndex === 0 ? -1 : dayIndex === 6 ? -1 : dayIndex - 1;
+
+  if (weekdayIndex < 0) {
+    // Weekend: show Monday-Wednesday
+    return [WEEKDAY_ORDER[0], WEEKDAY_ORDER[1], WEEKDAY_ORDER[2]];
+  } else if (weekdayIndex === 0) {
+    // Monday: show Mon-Wed
+    return [WEEKDAY_ORDER[0], WEEKDAY_ORDER[1], WEEKDAY_ORDER[2]];
+  } else if (weekdayIndex === 4) {
+    // Friday: show Wed-Fri
+    return [WEEKDAY_ORDER[2], WEEKDAY_ORDER[3], WEEKDAY_ORDER[4]];
+  } else {
+    // Tue/Wed/Thu: show yesterday, today, tomorrow
+    return [WEEKDAY_ORDER[weekdayIndex - 1], WEEKDAY_ORDER[weekdayIndex], WEEKDAY_ORDER[weekdayIndex + 1]];
+  }
+}
+
+// Helper: Determine route order based on time of day
+function getRouteOrder() {
+  const now = new Date();
+  const hour = now.getHours();
+
+  // Mornings (before 12:00): outbound first
+  // Afternoons/Evenings (12:00+): return first
+  if (hour < 12) {
+    return ['outbound', 'return'];
+  } else {
+    return ['return', 'outbound'];
+  }
 }
 
 // ── Empfehlungs-Widget ─────────────────────────────────────────────────────────
@@ -782,69 +753,6 @@ function renderWeekdayChart() {
       }
     }
   });
-}
-
-// ── Monatlicher Trend ──────────────────────────────────────────────────────────
-
-function renderMonthlyChart() {
-  // Gruppiere nach Monat
-  const byMonth = { outbound: {}, return: {} };
-  ['outbound', 'return'].forEach(routeId => {
-    allRows.filter(r => r.route_id === routeId).forEach(r => {
-      const month = r.timestamp_utc.substring(0, 7); // YYYY-MM
-      if (!byMonth[routeId][month]) byMonth[routeId][month] = [];
-      byMonth[routeId][month].push(parseInt(r.duration_seconds));
-    });
-  });
-
-  // Nur wenn mindestens 2 Monate
-  const months = [...new Set([...Object.keys(byMonth.outbound), ...Object.keys(byMonth.return)])].sort();
-  if (months.length < 2) return;
-
-  const labels = months.map(m => {
-    const [y, mo] = m.split('-');
-    return `${mo}/${y.slice(2)}`;
-  });
-
-  const outboundAvg = months.map(m => byMonth.outbound[m] ? secToMin(byMonth.outbound[m].reduce((a,b)=>a+b,0) / byMonth.outbound[m].length) : null);
-  const returnAvg = months.map(m => byMonth.return[m] ? secToMin(byMonth.return[m].reduce((a,b)=>a+b,0) / byMonth.return[m].length) : null);
-
-  const ctx = document.getElementById("chart-monthly").getContext("2d");
-  if (monthlyChart) monthlyChart.destroy();
-  monthlyChart = new Chart(ctx, {
-    type: "line",
-    data: {
-      labels,
-      datasets: [
-        {
-          label: "Hinfahrt",
-          data: outboundAvg,
-          borderColor: "#3b82d4",
-          backgroundColor: "rgba(59,130,212,0.1)",
-          borderWidth: 2,
-          tension: 0.3
-        },
-        {
-          label: "Rückfahrt",
-          data: returnAvg,
-          borderColor: "#16a34a",
-          backgroundColor: "rgba(22,163,74,0.1)",
-          borderWidth: 2,
-          tension: 0.3
-        }
-      ]
-    },
-    options: {
-      responsive: true,
-      maintainAspectRatio: false,
-      plugins: { legend: { position: "bottom" } },
-      scales: {
-        y: { title: { display: true, text: "Ø Minuten" }, beginAtZero: false }
-      }
-    }
-  });
-
-  document.getElementById("card-monthly").style.display = "";
 }
 
 // ── Zuverlässigkeits-Chart ─────────────────────────────────────────────────────
@@ -1159,17 +1067,67 @@ function displayAllRoutes() {
     }
   }
 
-  // Heatmaps for both routes (nur relevante Stunden)
-  if (statsData.routes["outbound"]?.by_weekday_hour) {
-    renderSparseHeatmap(statsData.routes["outbound"].by_weekday_hour, "heatmap-container-outbound", "outbound");
-  }
-  if (statsData.routes["return"]?.by_weekday_hour) {
-    renderSparseHeatmap(statsData.routes["return"].by_weekday_hour, "heatmap-container-return", "return");
+  // Compact Heatmaps (3 days) for both routes - time-aware order
+  if (statsData.routes["outbound"]?.by_weekday_hour || statsData.routes["return"]?.by_weekday_hour) {
+    const threeDays = getThreeDayWindow();
+    const routeOrder = getRouteOrder();
+    const container = document.getElementById("heatmap-compact-container");
+
+    let html = '';
+    for (const routeId of routeOrder) {
+      const routeData = statsData.routes[routeId]?.by_weekday_hour;
+      if (!routeData) continue;
+
+      const label = routeId === 'outbound' ? '→ Hinfahrt' : '← Rückfahrt';
+      const color = routeId === 'outbound' ? '#3b82d4' : '#16a34a';
+      const marginTop = html === '' ? '16px' : '24px';
+
+      html += `<h3 style="font-size:14px;font-weight:600;margin-bottom:12px;margin-top:${marginTop};color:${color}">${label}</h3>`;
+      html += `<div class="heatmap-wrap"><div id="heatmap-compact-${routeId}"></div></div>`;
+    }
+
+    container.innerHTML = html;
+
+    // Render heatmaps after DOM is updated
+    for (const routeId of routeOrder) {
+      const routeData = statsData.routes[routeId]?.by_weekday_hour;
+      if (routeData) {
+        renderInvertedHeatmap(routeData, `heatmap-compact-${routeId}`, routeId, threeDays);
+      }
+    }
+
+    document.getElementById("card-heatmap-compact").style.display = "";
   }
 
-  // Timeseries with both routes
-  if (allRows.length > 0) {
-    renderTimeseries(allRows, activeDays);
+  // Full Heatmaps (all 5 days) for both routes - time-aware order
+  if (statsData.routes["outbound"]?.by_weekday_hour || statsData.routes["return"]?.by_weekday_hour) {
+    const routeOrder = getRouteOrder();
+    const container = document.getElementById("heatmap-full-container");
+
+    let html = '';
+    for (const routeId of routeOrder) {
+      const routeData = statsData.routes[routeId]?.by_weekday_hour;
+      if (!routeData) continue;
+
+      const label = routeId === 'outbound' ? '→ Hinfahrt' : '← Rückfahrt';
+      const color = routeId === 'outbound' ? '#3b82d4' : '#16a34a';
+      const marginTop = html === '' ? '16px' : '24px';
+
+      html += `<h3 style="font-size:14px;font-weight:600;margin-bottom:12px;margin-top:${marginTop};color:${color}">${label}</h3>`;
+      html += `<div class="heatmap-wrap"><div id="heatmap-full-${routeId}"></div></div>`;
+    }
+
+    container.innerHTML = html;
+
+    // Render heatmaps after DOM is updated
+    for (const routeId of routeOrder) {
+      const routeData = statsData.routes[routeId]?.by_weekday_hour;
+      if (routeData) {
+        renderInvertedHeatmap(routeData, `heatmap-full-${routeId}`, routeId);
+      }
+    }
+
+    document.getElementById("card-heatmap-full").style.display = "";
   }
 
   // Heute vs. Durchschnitt
@@ -1187,11 +1145,6 @@ function displayAllRoutes() {
 
   // Wochentag-Vergleich
   renderWeekdayChart();
-
-  // Monatlicher Trend (nur wenn genug Daten)
-  if (allRows.length > 0) {
-    renderMonthlyChart();
-  }
 
   // Zuverlässigkeit
   if (allRows.length >= 10) {
@@ -1250,16 +1203,6 @@ async function init() {
 
     // Initial display
     displayAllRoutes();
-
-    // Time range toggle buttons
-    document.querySelectorAll(".toggle-btn[data-days]").forEach(btn => {
-      btn.addEventListener("click", () => {
-        document.querySelectorAll(".toggle-btn[data-days]").forEach(b => b.classList.remove("active"));
-        btn.classList.add("active");
-        activeDays = parseInt(btn.dataset.days);
-        renderTimeseries(allRows, activeDays);
-      });
-    });
 
     document.getElementById("loading").style.display = "none";
 
