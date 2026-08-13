@@ -1,10 +1,10 @@
 {
-  "last_updated": "2026-08-13T05:20:24+00:00",
+  "last_updated": "2026-08-13T05:25:17+00:00",
   "routes": {
     "outbound": {
       "latest": {
-        "timestamp_utc": "2026-08-13T05:20:24+00:00",
-        "duration_seconds": 1622,
+        "timestamp_utc": "2026-08-13T05:25:17+00:00",
+        "duration_seconds": 1633,
         "static_duration_seconds": 1661,
         "origin_lat": 48.7816677,
         "origin_lng": 9.1623606,
@@ -759,10 +759,10 @@
               "count": 5
             },
             "25": {
-              "avg": 1744,
-              "min": 1646,
+              "avg": 1722,
+              "min": 1633,
               "max": 1839,
-              "count": 4
+              "count": 5
             }
           },
           "08": {
