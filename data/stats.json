@@ -1,10 +1,10 @@
 {
-  "last_updated": "2026-09-11T07:25:16+00:00",
+  "last_updated": "2026-09-11T07:30:31+00:00",
   "routes": {
     "outbound": {
       "latest": {
-        "timestamp_utc": "2026-09-11T07:25:16+00:00",
-        "duration_seconds": 1630,
+        "timestamp_utc": "2026-09-11T07:30:31+00:00",
+        "duration_seconds": 1643,
         "static_duration_seconds": 1649,
         "origin_lat": 48.7816677,
         "origin_lng": 9.1623606,
@@ -1178,7 +1178,7 @@
               "avg": 1651,
               "min": 1605,
               "max": 1744,
-              "count": 9
+              "count": 10
             },
             "35": {
               "avg": 1657,
